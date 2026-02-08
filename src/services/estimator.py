@@ -9,7 +9,9 @@ class ProbabilityEstimator:
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self.llm = llm_client or get_llm_client()
 
-    async def estimate(self, market: Market, research_data: dict) -> dict:
+    async def estimate(
+        self, market: Market, research_data: dict, *, historical_context: str = ""
+    ) -> dict:
         logger.info("estimating_probability", ticker=market.ticker)
 
         result = await self.llm.estimate_probability(
@@ -17,6 +19,7 @@ class ProbabilityEstimator:
             market_description=market.subtitle or "",
             research_data=research_data,
             resolution_criteria=f"Market closes at {market.close_time}",
+            historical_context=historical_context,
         )
 
         yes_prob = float(result["yes_probability"])

@@ -56,6 +56,21 @@ class RecommendationRepository:
         )
         return list(result.scalars().all())
 
+    async def list_by_category(
+        self,
+        category: str,
+        *,
+        limit: int = 5,
+        exclude_scan_id: str | None = None,
+    ) -> list[RecommendationModel]:
+        query = select(RecommendationModel).where(RecommendationModel.category == category)
+        if exclude_scan_id:
+            query = query.where(RecommendationModel.scan_id != exclude_scan_id)
+        result = await self.session.execute(
+            query.order_by(RecommendationModel.created_at.desc()).limit(limit)
+        )
+        return list(result.scalars().all())
+
     async def update_status(self, rec_id: str, status: str) -> RecommendationModel | None:
         rec = await self.get(rec_id)
         if rec is None:
