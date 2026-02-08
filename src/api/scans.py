@@ -63,9 +63,6 @@ async def get_scan(
     if scan is None:
         raise HTTPException(status_code=404, detail="Scan not found")
 
-    rec_repo = RecommendationRepository(db)
-    recs = await rec_repo.list_by_scan(scan_id)
-
     scan_detail = ScanDetail(
         id=scan.id,
         status=scan.status,
