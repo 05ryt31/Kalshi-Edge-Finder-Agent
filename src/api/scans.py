@@ -1,12 +1,10 @@
-import asyncio
-
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.repositories.recommendation import RecommendationRepository
 from src.db.repositories.scan import ScanRepository
+from src.db.session import async_session_factory
 from src.dependencies import get_db
-from src.schemas.recommendation import Recommendation
 from src.schemas.scan import (
     Scan,
     ScanDetail,
@@ -14,22 +12,31 @@ from src.schemas.scan import (
     ScanListResponse,
     ScanStartResponse,
 )
+from src.utils.logger import get_logger
 from src.worker.tasks import run_scan_task
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
 
 @router.post("", response_model=ScanStartResponse)
 async def start_scan(background_tasks: BackgroundTasks) -> ScanStartResponse:
-    background_tasks.add_task(_run_scan_background)
-    return ScanStartResponse(scan_id="pending", status="started")
+    async with async_session_factory() as session:
+        repo = ScanRepository(session)
+        scan = await repo.create()
+        scan_id = scan.id
+        await session.commit()
+
+    background_tasks.add_task(_run_scan_background, scan_id)
+    return ScanStartResponse(scan_id=scan_id, status="started")
 
 
-async def _run_scan_background() -> None:
+async def _run_scan_background(scan_id: str) -> None:
     try:
-        await run_scan_task()
-    except Exception:
-        pass
+        await run_scan_task(scan_id=scan_id)
+    except Exception as e:
+        logger.error("background_scan_failed", scan_id=scan_id, error=str(e))
 
 
 @router.get("", response_model=ScanListResponse)

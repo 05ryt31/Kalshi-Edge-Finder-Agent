@@ -11,8 +11,9 @@ async_session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_o
 
 
 async def create_tables() -> None:
-    db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+    if settings.DATABASE_URL.startswith("sqlite"):
+        db_path = settings.DATABASE_URL.replace("sqlite+aiosqlite:///", "")
+        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
