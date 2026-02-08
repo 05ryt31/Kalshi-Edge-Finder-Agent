@@ -1,8 +1,7 @@
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.repositories.recommendation import RecommendationRepository
 from src.dependencies import get_db
 from src.models.recommendation import RecommendationModel
 from src.schemas.stats import StatsSummary, StatsSummaryResponse

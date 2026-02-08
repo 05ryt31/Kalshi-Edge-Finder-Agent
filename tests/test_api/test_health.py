@@ -1,5 +1,9 @@
+import os
+
 import pytest
 from httpx import ASGITransport, AsyncClient
+
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
 from src.main import app
 

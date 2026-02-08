@@ -1,7 +1,5 @@
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
 from src.schemas.market import Market
 from src.schemas.settings import Settings
 from src.services.decision import DecisionEngine

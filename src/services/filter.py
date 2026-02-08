@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from src.schemas.market import Market
 from src.schemas.settings import Settings
@@ -30,10 +30,10 @@ class FilterService:
         if max_multiplier < self.settings.min_multiplier:
             return False
 
-        days_to_close = (market.close_time - datetime.now(timezone.utc)).days
-        if days_to_close > self.settings.max_days_to_close:
+        time_to_close = market.close_time - datetime.now(timezone.utc)
+        if time_to_close.total_seconds() < 0:
             return False
-        if days_to_close < 0:
+        if time_to_close > timedelta(days=self.settings.max_days_to_close):
             return False
 
         if market.volume < self.settings.min_volume:

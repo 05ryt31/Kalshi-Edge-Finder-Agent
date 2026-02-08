@@ -3,9 +3,6 @@ from typing import Literal
 
 from pydantic import BaseModel
 
-from src.schemas.market import Market
-
-
 class Recommendation(BaseModel):
     id: str
     scan_id: str | None = None
