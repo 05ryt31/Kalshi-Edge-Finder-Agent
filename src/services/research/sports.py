@@ -52,27 +52,36 @@ class SportsResearcher:
 
     NFL_TEAMS = [
         "Chiefs", "Eagles", "49ers", "Bills", "Cowboys", "Ravens", "Dolphins",
-        "Lions", "Bengals", "Jaguars", "Chargers", "Steelers", "Jets", "Bears",
+        "Lions", "Bengals", "Jaguars", "Chargers", "Steelers", "NY Jets", "Bears",
         "Packers", "Seahawks", "Vikings", "Saints", "Texans", "Broncos",
         "Commanders", "Browns", "Raiders", "Rams", "Colts", "Falcons",
-        "Cardinals", "Giants", "Panthers", "Titans", "Buccaneers", "Patriots",
+        "Arizona Cardinals", "NY Giants", "Carolina Panthers", "Titans", "Buccaneers", "Patriots",
     ]
 
     MLB_TEAMS = [
         "Yankees", "Dodgers", "Astros", "Braves", "Mets", "Phillies",
         "Padres", "Guardians", "Mariners", "Orioles", "Rays", "Blue Jays",
-        "Rangers", "Twins", "Red Sox", "Cubs", "Brewers", "Cardinals",
-        "Diamondbacks", "Marlins", "Giants", "Pirates", "Reds", "Royals",
+        "Rangers", "Twins", "Red Sox", "Cubs", "Brewers", "STL Cardinals",
+        "Diamondbacks", "Marlins", "SF Giants", "Pirates", "Reds", "Royals",
         "White Sox", "Tigers", "Angels", "Rockies", "Athletics", "Nationals",
     ]
 
     NHL_TEAMS = [
-        "Avalanche", "Lightning", "Panthers", "Bruins", "Oilers", "Rangers",
+        "Avalanche", "Lightning", "Florida Panthers", "Bruins", "Oilers", "Rangers",
         "Hurricanes", "Maple Leafs", "Flames", "Stars", "Wild", "Penguins",
         "Kraken", "Devils", "Islanders", "Capitals", "Senators", "Predators",
         "Canucks", "Red Wings", "Sabres", "Blue Jackets", "Blackhawks",
-        "Flyers", "Sharks", "Ducks", "Jets", "Coyotes", "Golden Knights",
+        "Flyers", "Sharks", "Ducks", "Winnipeg Jets", "Coyotes", "Golden Knights",
     ]
+
+    # Mapping of short (ambiguous) names to their specific team names by league
+    # Used for backward compatibility in _extract_teams
+    AMBIGUOUS_TEAMS: dict[str, dict[str, str]] = {
+        "giants": {"nfl": "NY Giants", "mlb": "SF Giants"},
+        "cardinals": {"nfl": "Arizona Cardinals", "mlb": "STL Cardinals"},
+        "jets": {"nfl": "NY Jets", "nhl": "Winnipeg Jets"},
+        "panthers": {"nfl": "Carolina Panthers", "nhl": "Florida Panthers"},
+    }
 
     def __init__(self, client: OddsAPIClient) -> None:
         self.client = client
@@ -130,6 +139,26 @@ class SportsResearcher:
             if team.lower() in title_lower:
                 return "icehockey_nhl"
 
+        # Check for ambiguous team names - these require additional context
+        # from ticker prefix to disambiguate
+        for short_name, leagues in self.AMBIGUOUS_TEAMS.items():
+            if short_name in title_lower:
+                # Check ticker for league prefix to disambiguate
+                if "NFL" in ticker and "nfl" in leagues:
+                    return "americanfootball_nfl"
+                if "MLB" in ticker and "mlb" in leagues:
+                    return "baseball_mlb"
+                if "NHL" in ticker and "nhl" in leagues:
+                    return "icehockey_nhl"
+                # No ticker context - return first available league for this team
+                # (NFL teams are checked first for backward compatibility)
+                if "nfl" in leagues:
+                    return "americanfootball_nfl"
+                if "mlb" in leagues:
+                    return "baseball_mlb"
+                if "nhl" in leagues:
+                    return "icehockey_nhl"
+
         return None
 
     def _extract_teams(self, title: str) -> list[str]:
@@ -140,6 +169,36 @@ class SportsResearcher:
         for team in all_teams:
             if team.lower() in title_lower:
                 found.append(team)
+
+        # Also check for short/ambiguous team names and return the disambiguated version
+        # based on other context in the title
+        for short_name, leagues in self.AMBIGUOUS_TEAMS.items():
+            if short_name in title_lower:
+                # Check if we already matched a specific version of this team
+                already_matched = any(
+                    short_name in team.lower() for team in found
+                )
+                if not already_matched:
+                    # Try to disambiguate based on league keywords in title
+                    sport_key = None
+                    for keyword, key in self.TITLE_SPORT_MAP.items():
+                        if keyword in title_lower:
+                            sport_key = key
+                            break
+
+                    if sport_key:
+                        if "nfl" in sport_key or "football" in sport_key:
+                            if "nfl" in leagues:
+                                found.append(leagues["nfl"])
+                        elif "mlb" in sport_key or "baseball" in sport_key:
+                            if "mlb" in leagues:
+                                found.append(leagues["mlb"])
+                        elif "nhl" in sport_key or "hockey" in sport_key:
+                            if "nhl" in leagues:
+                                found.append(leagues["nhl"])
+                    else:
+                        # No context to disambiguate, add all possibilities
+                        found.extend(leagues.values())
 
         if not found:
             vs_match = re.search(r"(.+?)\s+vs\.?\s+(.+?)(?:\s|$)", title, re.IGNORECASE)
