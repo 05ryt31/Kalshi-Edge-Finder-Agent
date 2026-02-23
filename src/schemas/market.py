@@ -10,7 +10,7 @@ class Market(BaseModel):
     title: str
     subtitle: str | None = None
     category: Literal["climate", "economics", "sports", "companies", "other"]
-    status: Literal["open", "active", "closed", "settled"]
+    status: Literal["open", "closed", "settled"]
     yes_ask: int
     no_ask: int
     yes_bid: int
