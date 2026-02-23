@@ -2,7 +2,10 @@ from datetime import datetime, timezone
 
 from src.clients.fred import FREDClient
 from src.clients.kalshi import KalshiClient
+from src.clients.odds_api import OddsAPIClient
 from src.clients.openweather import OpenWeatherClient
+from src.clients.tavily import TavilyClient
+from src.config import settings
 from src.db.repositories.recommendation import RecommendationRepository
 from src.db.repositories.scan import ScanRepository
 from src.db.repositories.settings import SettingsRepository
@@ -28,6 +31,8 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
     kalshi = KalshiClient()
     openweather = OpenWeatherClient()
     fred = FREDClient()
+    odds_api = OddsAPIClient() if settings.ODDS_API_KEY else None
+    tavily = TavilyClient() if settings.TAVILY_API_KEY else None
 
     try:
         async with async_session_factory() as session:
@@ -37,7 +42,7 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
 
             scanner = ScannerService(kalshi)
             filter_service = FilterService(app_settings)
-            research_agent = ResearchAgent(openweather, fred)
+            research_agent = ResearchAgent(openweather, fred, odds_api, tavily)
             estimator = ProbabilityEstimator()
             decision_engine = DecisionEngine(app_settings)
 
@@ -145,6 +150,10 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
         await kalshi.close()
         await openweather.close()
         await fred.close()
+        if odds_api:
+            await odds_api.close()
+        if tavily:
+            await tavily.close()
 
 
 async def _generate_reports(

@@ -9,7 +9,7 @@ class Settings(BaseModel):
     max_days_to_close: int = 7
     min_volume: int = 100
     max_bet_amount: float = 100.0
-    categories: list[str] = ["climate", "economics"]
+    categories: list[str] = ["climate", "economics", "sports"]
     auto_execute: bool = False
     auto_execute_strength: Literal["strong", "medium", "weak"] = "strong"
     scan_interval_hours: int = 1
