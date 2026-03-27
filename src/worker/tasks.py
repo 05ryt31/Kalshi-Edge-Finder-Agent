@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from src.clients.fred import FREDClient
 from src.clients.kalshi import KalshiClient
+from src.clients.nws import NWSClient
 from src.clients.odds_api import OddsAPIClient
 from src.clients.openweather import OpenWeatherClient
 from src.clients.tavily import TavilyClient
@@ -31,6 +32,7 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
     kalshi = KalshiClient()
     openweather = OpenWeatherClient()
     fred = FREDClient()
+    nws = NWSClient()
     odds_api = OddsAPIClient() if settings.ODDS_API_KEY else None
     tavily = TavilyClient() if settings.TAVILY_API_KEY else None
 
@@ -42,7 +44,7 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
 
             scanner = ScannerService(kalshi)
             filter_service = FilterService(app_settings)
-            research_agent = ResearchAgent(openweather, fred, odds_api, tavily)
+            research_agent = ResearchAgent(openweather, fred, nws, odds_api, tavily)
             estimator = ProbabilityEstimator()
             decision_engine = DecisionEngine(app_settings)
 
@@ -150,6 +152,7 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
         await kalshi.close()
         await openweather.close()
         await fred.close()
+        await nws.close()
         if odds_api:
             await odds_api.close()
         if tavily:

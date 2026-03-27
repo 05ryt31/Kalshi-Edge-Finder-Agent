@@ -27,6 +27,10 @@ def _extract_json(text: str) -> dict:
     raise json.JSONDecodeError("No JSON found in response", text, 0)
 
 
+def _select_prompt(use_climate: bool) -> str:
+    return CLIMATE_ESTIMATION_PROMPT if use_climate else ESTIMATION_PROMPT
+
+
 class LLMClient(ABC):
     @abstractmethod
     async def estimate_probability(
@@ -36,6 +40,8 @@ class LLMClient(ABC):
         research_data: dict,
         resolution_criteria: str,
         historical_context: str = "",
+        *,
+        use_climate_prompt: bool = False,
     ) -> dict:
         pass
 
@@ -64,6 +70,41 @@ Respond with ONLY a JSON object in this format:
 Output ONLY the JSON, no other text."""
 
 
+CLIMATE_ESTIMATION_PROMPT = """You are a prediction market analyst specializing in climate/weather markets.
+Estimate the probability that the following market resolves YES.
+
+## Market
+Title: {title}
+Description: {description}
+
+## Official Resolution Criteria
+{resolution_criteria}
+
+## NWS Station Data
+{research_data}
+
+## Key Rules
+- For DAY-OF markets: weight ASOS observations and CLI reports HEAVILY over forecasts.
+  The running daily high/low from ASOS is near-authoritative if close to market close.
+- NWS calendar-day highs run 00:00-23:59 LST. Cold fronts can push the daily high to midnight.
+- For future events: NWS observations provide current baseline; forecasts fill the gap.
+- If running_daily_high_f already exceeds the threshold and market is day-of, probability is near 1.0.
+- If running_daily_high_f is far below threshold late in the day, probability drops sharply.
+
+## Historical Analysis (Same Category)
+{historical_context}
+
+## Response Format
+Respond with ONLY a JSON object in this format:
+{{
+    "yes_probability": 0.XX,
+    "confidence": 0.XX,
+    "reasoning": "Brief explanation referencing specific NWS data points"
+}}
+
+Output ONLY the JSON, no other text."""
+
+
 class ClaudeClient(LLMClient):
     def __init__(self) -> None:
         from anthropic import AsyncAnthropic
@@ -78,8 +119,11 @@ class ClaudeClient(LLMClient):
         research_data: dict,
         resolution_criteria: str,
         historical_context: str = "",
+        *,
+        use_climate_prompt: bool = False,
     ) -> dict:
-        prompt = ESTIMATION_PROMPT.format(
+        template = _select_prompt(use_climate_prompt)
+        prompt = template.format(
             title=market_title,
             description=market_description,
             resolution_criteria=resolution_criteria,
@@ -110,8 +154,11 @@ class OpenAIClient(LLMClient):
         research_data: dict,
         resolution_criteria: str,
         historical_context: str = "",
+        *,
+        use_climate_prompt: bool = False,
     ) -> dict:
-        prompt = ESTIMATION_PROMPT.format(
+        template = _select_prompt(use_climate_prompt)
+        prompt = template.format(
             title=market_title,
             description=market_description,
             resolution_criteria=resolution_criteria,
@@ -142,8 +189,11 @@ class GeminiClient(LLMClient):
         research_data: dict,
         resolution_criteria: str,
         historical_context: str = "",
+        *,
+        use_climate_prompt: bool = False,
     ) -> dict:
-        prompt = ESTIMATION_PROMPT.format(
+        template = _select_prompt(use_climate_prompt)
+        prompt = template.format(
             title=market_title,
             description=market_description,
             resolution_criteria=resolution_criteria,

@@ -1,4 +1,43 @@
 from src.services.scanner import ScannerService
+from src.utils.ticker_parser import ClimateTickerInfo
+
+
+class TestScannerClimateInfo:
+    def setup_method(self):
+        self.scanner = ScannerService(None)
+
+    def test_climate_market_gets_climate_info(self):
+        data = {
+            "ticker": "KXHIGHNY-22FEB26-B38.5",
+            "event_ticker": "KXHIGH",
+            "title": "NYC High Temperature",
+            "close_time": "2026-02-22T23:59:00Z",
+        }
+        market = self.scanner._parse_market(data)
+        assert market.climate_info is not None
+        assert market.climate_info.market_type == "high_temp"
+        assert market.climate_info.city_code == "NY"
+
+    def test_non_climate_market_no_climate_info(self):
+        data = {
+            "ticker": "NBA-LAKERS-ML",
+            "event_ticker": "NBA",
+            "title": "Lakers vs Celtics",
+            "close_time": "2026-02-22T23:59:00Z",
+        }
+        market = self.scanner._parse_market(data)
+        assert market.climate_info is None
+
+    def test_climate_ticker_without_parseable_info(self):
+        data = {
+            "ticker": "HIGHTEMP-UNKNOWN",
+            "event_ticker": "HIGH",
+            "title": "temperature somewhere",
+            "close_time": "2026-02-22T23:59:00Z",
+        }
+        market = self.scanner._parse_market(data)
+        # Category is climate but ticker may not parse
+        assert market.category == "climate"
 
 
 class TestScannerCategoryInference:

@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 from src.clients.kalshi import KalshiClient
 from src.schemas.market import Market
 from src.utils.logger import get_logger
+from src.utils.ticker_parser import parse_climate_ticker
 
 logger = get_logger(__name__)
 
@@ -28,12 +29,17 @@ class ScannerService:
                 break
 
     def _parse_market(self, data: dict) -> Market:
+        category = self._infer_category(data)
+        climate_info = None
+        if category == "climate":
+            climate_info = parse_climate_ticker(data.get("ticker", ""))
+
         return Market(
             ticker=data["ticker"],
             event_ticker=data.get("event_ticker", ""),
             title=data.get("title", ""),
             subtitle=data.get("subtitle"),
-            category=self._infer_category(data),
+            category=category,
             status=data.get("status", "open"),
             yes_ask=data.get("yes_ask", 0),
             no_ask=data.get("no_ask", 0),
@@ -44,6 +50,7 @@ class ScannerService:
             volume_24h=data.get("volume_24h", 0),
             close_time=data["close_time"],
             expiration_time=data.get("expiration_time", data["close_time"]),
+            climate_info=climate_info,
         )
 
     def _infer_category(self, data: dict) -> str:

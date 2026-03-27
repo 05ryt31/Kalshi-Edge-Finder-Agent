@@ -14,12 +14,17 @@ class ProbabilityEstimator:
     ) -> dict:
         logger.info("estimating_probability", ticker=market.ticker)
 
+        resolution_criteria = self._build_resolution_criteria(market, research_data)
+
+        use_climate = market.climate_info is not None
+
         result = await self.llm.estimate_probability(
             market_title=market.title,
             market_description=market.subtitle or "",
             research_data=research_data,
-            resolution_criteria=f"Market closes at {market.close_time}",
+            resolution_criteria=resolution_criteria,
             historical_context=historical_context,
+            use_climate_prompt=use_climate,
         )
 
         yes_prob = float(result["yes_probability"])
@@ -29,3 +34,9 @@ class ProbabilityEstimator:
             "confidence": float(result["confidence"]),
             "reasoning": result["reasoning"],
         }
+
+    def _build_resolution_criteria(self, market: Market, research_data: dict) -> str:
+        collected = research_data.get("collected_data", {})
+        if "resolution_criteria" in collected:
+            return collected["resolution_criteria"]
+        return f"Market closes at {market.close_time}"

@@ -1,4 +1,5 @@
 from src.clients.fred import FREDClient
+from src.clients.nws import NWSClient
 from src.clients.odds_api import OddsAPIClient
 from src.clients.openweather import OpenWeatherClient
 from src.clients.tavily import TavilyClient
@@ -17,10 +18,11 @@ class ResearchAgent:
         self,
         openweather: OpenWeatherClient,
         fred: FREDClient,
+        nws: NWSClient | None = None,
         odds_api: OddsAPIClient | None = None,
         tavily: TavilyClient | None = None,
     ) -> None:
-        self.weather = WeatherResearcher(openweather)
+        self.weather = WeatherResearcher(openweather, nws)
         self.economics = EconomicsResearcher(fred)
         self.sports = SportsResearcher(odds_api) if odds_api else None
         self.web_search = WebSearchResearcher(tavily) if tavily else None
