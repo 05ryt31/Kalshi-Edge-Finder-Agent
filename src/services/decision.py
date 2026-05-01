@@ -9,13 +9,30 @@ from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Kalshi trading fee: round(0.07 * contracts * price * (1 - price)) per fill.
+# Per-contract effective rate = 0.07 * p * (1 - p), expressed in dollars
+# (since price is in [0,1] and a contract pays $1).
+KALSHI_FEE_RATE = 0.07
+
+
+def kalshi_fee_per_contract(price: float) -> float:
+    """Kalshi fee per contract, in dollars. price is yes_ask/100 in [0,1]."""
+    p = max(0.0, min(1.0, price))
+    return KALSHI_FEE_RATE * p * (1 - p)
+
 
 class DecisionEngine:
+    # Climate-focused thresholds: with physics/stats-based estimation we expect
+    # smaller real edges. Trade looser edge bars for stricter confidence bars,
+    # so only well-grounded calls pass through.
     STRENGTH_THRESHOLDS: dict[str, dict[str, float]] = {
-        "strong": {"edge": 0.30, "confidence": 0.80, "probability": 0.60},
-        "medium": {"edge": 0.20, "confidence": 0.60, "probability": 0.50},
-        "weak": {"edge": 0.15, "confidence": 0.50, "probability": 0.40},
+        "strong": {"edge": 0.05, "confidence": 0.85, "probability": 0.55},
+        "medium": {"edge": 0.03, "confidence": 0.75, "probability": 0.50},
+        "weak":   {"edge": 0.02, "confidence": 0.70, "probability": 0.45},
     }
+
+    # Fractional Kelly multiplier — 1/4 Kelly to absorb estimation error.
+    KELLY_FRACTION = 0.25
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -38,8 +55,14 @@ class DecisionEngine:
         yes_implied = market.yes_ask / 100
         no_implied = market.no_ask / 100
 
-        yes_edge = estimate["yes_probability"] - yes_implied
-        no_edge = estimate["no_probability"] - no_implied
+        # Fees reduce realized edge — one fee paid on entry per contract.
+        # We approximate exit fee as 0 (hold-to-resolution); paper trading
+        # results will calibrate this assumption.
+        yes_fee = kalshi_fee_per_contract(yes_implied)
+        no_fee = kalshi_fee_per_contract(no_implied)
+
+        yes_edge = estimate["yes_probability"] - yes_implied - yes_fee
+        no_edge = estimate["no_probability"] - no_implied - no_fee
 
         if yes_edge > no_edge:
             side: Literal["yes", "no"] = "yes"
@@ -71,6 +94,8 @@ class DecisionEngine:
             edge=edge,
             confidence=estimate["confidence"],
             strength=strength,
+            estimated_prob=estimated_prob,
+            market_price=market_price,
         )
 
         logger.info(
@@ -120,19 +145,44 @@ class DecisionEngine:
         edge: float,
         confidence: float,
         strength: str,
+        estimated_prob: float,
+        market_price: float,
     ) -> float:
-        base_multipliers = {
-            "strong": (0.80, 1.00),
-            "medium": (0.40, 0.60),
-            "weak": (0.10, 0.30),
-        }
+        """Fractional Kelly sizing.
 
-        min_mult, max_mult = base_multipliers[strength]
-        score = (edge + confidence) / 2
-        multiplier = min_mult + (max_mult - min_mult) * min(score, 1.0)
-        amount = self.settings.max_bet_amount * multiplier
+        For a binary contract priced at p (in cents), a YES fill at price p
+        cents costs $p/100 per contract and pays $1 if YES resolves.
+        Net odds b = (1 - p) / p where p is in [0, 1].
+        Full Kelly fraction f* = (prob * (1 + b) - 1) / b
+                             = (prob / p) - 1   ... after simplification.
+        We apply KELLY_FRACTION (1/4) for safety against estimation error,
+        then cap by settings.max_bet_amount.
+        """
+        price = max(market_price / 100.0, 0.01)
+        # Edge is already net of fees; require it positive.
+        if edge <= 0 or estimated_prob <= price:
+            return 0.0
 
-        return max(5.0, round(amount, 2))
+        # Net odds for a YES-style contract (works for either side after the
+        # caller has flipped probability/price into the chosen side's frame).
+        b = (1 - price) / price
+        kelly = (estimated_prob * (1 + b) - 1) / b
+        if kelly <= 0:
+            return 0.0
+
+        # Confidence shrinks Kelly further — low confidence → smaller bet.
+        confidence_factor = max(0.0, min(1.0, confidence))
+        fraction = kelly * self.KELLY_FRACTION * confidence_factor
+
+        # Cap at configured max bet (acts as proxy for bankroll * max position).
+        bankroll_proxy = self.settings.max_bet_amount
+        amount = bankroll_proxy * fraction
+
+        # Hard cap and round; minimum $1 if any positive size to avoid noise.
+        amount = min(amount, bankroll_proxy)
+        if amount < 1.0:
+            return 0.0
+        return round(amount, 2)
 
     def _should_block_extreme_price(self, market: Market, research_data: dict) -> bool:
         # Universal: block past events with extreme prices (any category)

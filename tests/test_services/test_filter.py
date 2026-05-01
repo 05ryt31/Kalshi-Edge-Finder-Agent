@@ -69,10 +69,11 @@ class TestFilterService:
         result = service.filter_markets([market])
         assert len(result) == 0
 
-    def test_sorts_by_multiplier(self):
+    def test_sorts_by_volume_24h(self):
         settings = Settings()
         service = FilterService(settings)
-        m1 = _make_market(ticker="LOW", yes_ask=30, no_ask=70)
-        m2 = _make_market(ticker="HIGH", yes_ask=10, no_ask=90)
+        m1 = _make_market(ticker="LOW_VOL", volume=100)
+        m2 = _make_market(ticker="HIGH_VOL", volume=5000)
+        # _make_market always sets volume_24h=100, so use total volume tiebreak.
         result = service.filter_markets([m1, m2])
-        assert result[0].ticker == "HIGH"
+        assert result[0].ticker == "HIGH_VOL"

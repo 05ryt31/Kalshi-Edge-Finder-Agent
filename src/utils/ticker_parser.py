@@ -40,6 +40,8 @@ _STATION_MAP: dict[str, str] = {
     "DTW": "KDTW",
     "SAN": "KSAN",
     "SAT": "KSAT",
+    "SF": "KSFO",
+    "SFO": "KSFO",
 }
 
 _CITY_DISPLAY: dict[str, str] = {
@@ -66,6 +68,8 @@ _CITY_DISPLAY: dict[str, str] = {
     "DTW": "Detroit",
     "SAN": "San Diego",
     "SAT": "San Antonio",
+    "SF": "San Francisco",
+    "SFO": "San Francisco",
 }
 
 # Known city codes sorted longest-first so "NYC" matches before "NY"
@@ -206,6 +210,8 @@ _WFO_MAP: dict[str, str] = {
     "DTW": "dtx",
     "SAN": "sgx",
     "SAT": "ewx",
+    "SF": "mtr",
+    "SFO": "mtr",
 }
 
 # CLI station names used in NWS daily climate reports
@@ -233,6 +239,8 @@ _CLI_STATION_MAP: dict[str, str] = {
     "DTW": "CLIDTW",
     "SAN": "CLISAN",
     "SAT": "CLISAT",
+    "SF": "CLISFO",
+    "SFO": "CLISFO",
 }
 
 
