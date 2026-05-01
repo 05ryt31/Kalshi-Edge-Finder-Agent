@@ -8,7 +8,7 @@ class Settings(BaseModel):
     min_multiplier: float = 1.5
     max_days_to_close: int = 7
     min_volume: int = 100
-    max_bet_amount: float = 25.0
+    max_bet_amount: float = 50.0
     categories: list[str] = ["climate"]
     auto_execute: bool = False
     auto_execute_strength: Literal["strong", "medium", "weak"] = "strong"

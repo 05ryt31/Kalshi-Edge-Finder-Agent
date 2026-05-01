@@ -14,7 +14,7 @@ class SettingsModel(Base):
     min_multiplier = Column(Float, nullable=False, default=1.5)
     max_days_to_close = Column(Integer, nullable=False, default=7)
     min_volume = Column(Integer, nullable=False, default=100)
-    max_bet_amount = Column(Float, nullable=False, default=25.0)
+    max_bet_amount = Column(Float, nullable=False, default=50.0)
     categories = Column(JSON, nullable=False, default=lambda: ["climate"])
     auto_execute = Column(Boolean, nullable=False, default=False)
     auto_execute_strength = Column(String(10), nullable=False, default="strong")
