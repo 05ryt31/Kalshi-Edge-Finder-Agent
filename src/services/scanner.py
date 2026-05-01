@@ -50,6 +50,13 @@ class ScannerService:
         ticker = data.get("ticker", "").upper()
         title = data.get("title", "").lower()
 
+        sports_keywords_ticker = [
+            "NBA", "NFL", "MLB", "NHL", "UFC", "MMA", "MLS",
+            "NCAAB", "NCAAF", "EPL", "FIFA", "PGA", "ATP", "WTA",
+        ]
+        if any(x in ticker for x in sports_keywords_ticker):
+            return "sports"
+
         climate_keywords_ticker = ["TEMP", "WEATHER", "RAIN", "HIGH", "LOW", "SNOW", "WIND"]
         if any(x in ticker for x in climate_keywords_ticker):
             return "climate"
@@ -57,6 +64,25 @@ class ScannerService:
         econ_keywords_ticker = ["CPI", "GDP", "FED", "JOBS", "NFP", "RATE", "INFLATION"]
         if any(x in ticker for x in econ_keywords_ticker):
             return "economics"
+
+        sports_keywords_title = [
+            "basketball", "football", "baseball", "hockey", "soccer",
+            "nba", "nfl", "mlb", "nhl", "ufc", "mma", "mls",
+            "playoffs", "super bowl", "world series", "stanley cup",
+            "march madness", "championship", "finals",
+            "lakers", "celtics", "warriors", "nets", "bucks", "76ers",
+            "suns", "mavericks", "heat", "nuggets", "clippers", "knicks",
+            "chiefs", "eagles", "49ers", "bills", "cowboys", "ravens",
+            "dolphins", "lions", "bengals", "packers", "seahawks",
+            "yankees", "dodgers", "astros", "braves", "mets", "phillies",
+            "padres", "red sox", "cubs", "brewers",
+            "avalanche", "lightning", "panthers", "bruins", "oilers",
+            "hurricanes", "maple leafs", "penguins", "golden knights",
+            "game ", " vs ", " vs. ",
+            "win", "score", "points", "touchdown", "home run",
+        ]
+        if any(x in title for x in sports_keywords_title):
+            return "sports"
 
         if any(x in title for x in ["temperature", "weather", "rain", "snow", "degrees"]):
             return "climate"
@@ -66,8 +92,5 @@ class ScannerService:
 
         if any(x in title for x in ["company", "stock", "earnings", "revenue", "share"]):
             return "companies"
-
-        if any(x in title for x in ["game", "match", "score", "team", "player"]):
-            return "sports"
 
         return "other"

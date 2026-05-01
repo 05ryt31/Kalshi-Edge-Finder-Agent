@@ -1,10 +1,30 @@
 import json
+import re
 from abc import ABC, abstractmethod
 
 from src.config import settings
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+def _extract_json(text: str) -> dict:
+    """Extract JSON from LLM response, handling markdown code blocks."""
+    text = text.strip()
+    # Try direct parse first
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Strip markdown code fences
+    match = re.search(r"```(?:json)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL)
+    if match:
+        return json.loads(match.group(1).strip())
+    # Try to find first { ... } block
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match:
+        return json.loads(match.group(0))
+    raise json.JSONDecodeError("No JSON found in response", text, 0)
 
 
 class LLMClient(ABC):
@@ -73,7 +93,7 @@ class ClaudeClient(LLMClient):
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}],
         )
-        return json.loads(response.content[0].text)
+        return _extract_json(response.content[0].text)
 
 
 class OpenAIClient(LLMClient):
@@ -108,9 +128,42 @@ class OpenAIClient(LLMClient):
         return json.loads(response.choices[0].message.content)
 
 
+class GeminiClient(LLMClient):
+    def __init__(self) -> None:
+        from google import genai
+
+        self.client = genai.Client(api_key=settings.GEMINI_API_KEY)
+        self.model = settings.LLM_MODEL or "gemini-2.5-flash"
+
+    async def estimate_probability(
+        self,
+        market_title: str,
+        market_description: str,
+        research_data: dict,
+        resolution_criteria: str,
+        historical_context: str = "",
+    ) -> dict:
+        prompt = ESTIMATION_PROMPT.format(
+            title=market_title,
+            description=market_description,
+            resolution_criteria=resolution_criteria,
+            research_data=json.dumps(research_data, indent=2),
+            historical_context=historical_context or "No prior analyses available.",
+        )
+
+        logger.info("llm_estimate", model=self.model, market=market_title)
+        response = await self.client.aio.models.generate_content(
+            model=self.model,
+            contents=prompt,
+        )
+        return _extract_json(response.text)
+
+
 def get_llm_client() -> LLMClient:
     if settings.LLM_PROVIDER == "anthropic":
         return ClaudeClient()
     if settings.LLM_PROVIDER == "openai":
         return OpenAIClient()
+    if settings.LLM_PROVIDER == "gemini":
+        return GeminiClient()
     raise ValueError(f"Unknown LLM provider: {settings.LLM_PROVIDER}")
