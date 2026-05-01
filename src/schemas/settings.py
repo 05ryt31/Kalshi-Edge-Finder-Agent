@@ -4,7 +4,6 @@ from pydantic import BaseModel
 
 
 class Settings(BaseModel):
-    edge_threshold: float = 0.05
     min_multiplier: float = 1.5
     max_days_to_close: int = 7
     min_volume: int = 100
@@ -21,7 +20,6 @@ class Settings(BaseModel):
 
 
 class SettingsUpdate(BaseModel):
-    edge_threshold: float | None = None
     min_multiplier: float | None = None
     max_days_to_close: int | None = None
     min_volume: int | None = None

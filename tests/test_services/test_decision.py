@@ -106,18 +106,20 @@ class TestDecisionEngine:
 
     def test_position_size_scales_with_strength(self):
         # Same market price; strong (higher prob+confidence) → larger Kelly bet.
+        # Both estimates are crafted to produce YES recommendations under the
+        # new thresholds so we can compare suggested_amount monotonically.
         market = _make_market(yes_ask=30, no_ask=70)
 
         strong_estimate = {
-            "yes_probability": 0.70,
+            "yes_probability": 0.70,  # edge ~0.40 net of fee → strong
             "no_probability": 0.30,
             "confidence": 0.95,
             "reasoning": "Strong",
         }
         weak_estimate = {
-            "yes_probability": 0.40,
-            "no_probability": 0.60,
-            "confidence": 0.72,
+            "yes_probability": 0.55,  # edge ~0.25 net of fee, but lower conf → weak
+            "no_probability": 0.45,
+            "confidence": 0.71,
             "reasoning": "Weak",
         }
 
@@ -125,10 +127,12 @@ class TestDecisionEngine:
         weak_rec = self.engine.evaluate(market, weak_estimate, {})
 
         assert strong_rec is not None
-        # Weak side picks NO (no_edge wins), strong picks YES; both must size > 0.
-        assert weak_rec is None or weak_rec.suggested_amount >= 0
-        if weak_rec is not None:
-            assert strong_rec.suggested_amount > weak_rec.suggested_amount
+        assert weak_rec is not None
+        assert strong_rec.side == "yes"
+        assert weak_rec.side == "yes"
+        assert strong_rec.strength == "strong"
+        assert weak_rec.strength == "weak"
+        assert strong_rec.suggested_amount > weak_rec.suggested_amount > 0
 
     def test_kelly_size_zero_when_no_edge(self):
         # No real edge → no recommendation at all (size is moot).

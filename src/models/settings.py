@@ -10,7 +10,6 @@ class SettingsModel(Base):
     __tablename__ = "settings"
 
     id = Column(Integer, primary_key=True, default=1)
-    edge_threshold = Column(Float, nullable=False, default=0.05)
     min_multiplier = Column(Float, nullable=False, default=1.5)
     max_days_to_close = Column(Integer, nullable=False, default=7)
     min_volume = Column(Integer, nullable=False, default=100)

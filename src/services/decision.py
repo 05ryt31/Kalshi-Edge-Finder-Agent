@@ -96,6 +96,7 @@ class DecisionEngine:
             strength=strength,
             estimated_prob=estimated_prob,
             market_price=market_price,
+            entry_fee=yes_fee if side == "yes" else no_fee,
         )
 
         logger.info(
@@ -147,25 +148,26 @@ class DecisionEngine:
         strength: str,
         estimated_prob: float,
         market_price: float,
+        entry_fee: float = 0.0,
     ) -> float:
-        """Fractional Kelly sizing.
+        """Fractional Kelly sizing, fee-aware.
 
-        For a binary contract priced at p (in cents), a YES fill at price p
-        cents costs $p/100 per contract and pays $1 if YES resolves.
-        Net odds b = (1 - p) / p where p is in [0, 1].
-        Full Kelly fraction f* = (prob * (1 + b) - 1) / b
-                             = (prob / p) - 1   ... after simplification.
-        We apply KELLY_FRACTION (1/4) for safety against estimation error,
-        then cap by settings.max_bet_amount.
+        For a binary contract priced at p (in cents), the *true* per-contract
+        cost on entry is `p/100 + fee` (fee in dollars). The contract pays $1
+        if it resolves in our favor.
+        Net odds b = (1 - effective_price) / effective_price.
+        Full Kelly f* = (prob * (1 + b) - 1) / b.
+        We apply KELLY_FRACTION (1/4) for safety, then shrink by confidence
+        and cap by settings.max_bet_amount.
         """
-        price = max(market_price / 100.0, 0.01)
-        # Edge is already net of fees; require it positive.
-        if edge <= 0 or estimated_prob <= price:
+        raw_price = max(market_price / 100.0, 0.01)
+        effective_price = min(raw_price + max(0.0, entry_fee), 0.99)
+
+        # Edge is already net of fees; require it positive vs effective cost.
+        if edge <= 0 or estimated_prob <= effective_price:
             return 0.0
 
-        # Net odds for a YES-style contract (works for either side after the
-        # caller has flipped probability/price into the chosen side's frame).
-        b = (1 - price) / price
+        b = (1 - effective_price) / effective_price
         kelly = (estimated_prob * (1 + b) - 1) / b
         if kelly <= 0:
             return 0.0
