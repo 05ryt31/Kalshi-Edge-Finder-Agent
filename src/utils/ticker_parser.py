@@ -79,18 +79,29 @@ def _parse_date(ticker: str) -> date | None:
     m = _DATE_RE.search(ticker)
     if not m:
         return None
-    day = int(m.group(1))
+    first = int(m.group(1))
     month_str = m.group(2)
-    year_raw = int(m.group(3))
-    year = year_raw if year_raw >= 100 else 2000 + year_raw
+    third_raw = m.group(3)
+    third = int(third_raw)
     month_map = {
         "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
         "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12,
     }
+    if len(third_raw) >= 4:
+        # DDMMMYYYY (e.g., 22FEB2026): first=day, third=full year
+        day, year = first, third
+    else:
+        # YYMMMDD (e.g., 26FEB22): first=2-digit year, third=day
+        year, day = 2000 + first, third
     try:
         return date(year, month_map[month_str], day)
     except ValueError:
         return None
+
+
+def parse_ticker_date(ticker: str) -> date | None:
+    """Extract a date from any Kalshi ticker string."""
+    return _parse_date(ticker)
 
 
 def _extract_city_code(ticker: str) -> str | None:

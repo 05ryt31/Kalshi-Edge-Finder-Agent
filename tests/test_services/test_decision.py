@@ -11,13 +11,15 @@ def _make_market(
     yes_ask: int = 30,
     no_ask: int = 70,
     climate_info: ClimateTickerInfo | None = None,
+    ticker_date: date | None = None,
+    category: str = "climate",
 ) -> Market:
     now = datetime.now(timezone.utc)
     return Market(
         ticker="TEST-MKT",
         event_ticker="TEST-EVT",
         title="Test Market",
-        category="climate",
+        category=category,
         status="open",
         yes_ask=yes_ask,
         no_ask=no_ask,
@@ -29,6 +31,7 @@ def _make_market(
         close_time=now + timedelta(days=3),
         expiration_time=now + timedelta(days=4),
         climate_info=climate_info,
+        ticker_date=ticker_date,
     )
 
 
@@ -204,3 +207,36 @@ class TestExtremePriceBlock:
         }
         # running_high (40) is close to threshold (38.5) → market is probably right → block
         assert self.engine._should_block_extreme_price(market, research_data) is True
+
+    def test_blocks_non_climate_past_extreme(self):
+        """Non-climate ticker with past date and extreme price should be blocked."""
+        market = _make_market(
+            yes_ask=99,
+            no_ask=1,
+            climate_info=None,
+            ticker_date=date(2020, 1, 1),
+            category="sports",
+        )
+        assert self.engine._should_block_extreme_price(market, {}) is True
+
+    def test_allows_non_climate_future_extreme(self):
+        """Non-climate ticker with future date and extreme price should NOT be blocked."""
+        market = _make_market(
+            yes_ask=99,
+            no_ask=1,
+            climate_info=None,
+            ticker_date=date(2099, 1, 1),
+            category="sports",
+        )
+        assert self.engine._should_block_extreme_price(market, {}) is False
+
+    def test_allows_non_climate_no_date_extreme(self):
+        """Non-climate ticker with no date and extreme price should NOT be blocked."""
+        market = _make_market(
+            yes_ask=99,
+            no_ask=1,
+            climate_info=None,
+            ticker_date=None,
+            category="other",
+        )
+        assert self.engine._should_block_extreme_price(market, {}) is False

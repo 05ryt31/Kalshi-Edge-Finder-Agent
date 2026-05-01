@@ -49,6 +49,11 @@ class WeatherResearcher:
         climate_info = market.climate_info
         station = get_nws_station(climate_info.city_code)
         city_name = get_city_display_name(climate_info.city_code) or climate_info.city_code
+
+        # Concluded events: CLI-only path to avoid echo chamber
+        if market.is_past_event:
+            return await self._concluded_event_research(market, climate_info, station, city_name)
+
         is_day_of = market.is_day_of_event
 
         collected: dict = {
@@ -118,6 +123,56 @@ class WeatherResearcher:
             "data_sources": data_sources,
             "collected_data": collected,
             "summary": summary,
+        }
+
+    async def _concluded_event_research(
+        self, market: Market, climate_info, station: str | None, city_name: str
+    ) -> dict:
+        """CLI-only research for concluded events. No ASOS, no OpenWeather."""
+        cli_station = get_cli_station(climate_info.city_code)
+        event_date = climate_info.event_date
+
+        collected: dict = {
+            "city": city_name,
+            "nws_station": station,
+            "market_type": climate_info.market_type,
+            "threshold": climate_info.threshold,
+            "bracket_type": climate_info.bracket_type,
+            "event_date": str(event_date) if event_date else None,
+            "event_concluded": True,
+            "market_close_time": str(market.close_time),
+        }
+
+        data_sources = []
+        official_data_missing = True
+
+        if cli_station and event_date:
+            cli = await self.nws.get_daily_cli(cli_station, event_date)
+            if cli:
+                data_sources.append("NWS CLI Report")
+                collected["cli_high"] = cli.high_temp
+                collected["cli_low"] = cli.low_temp
+                collected["cli_precip"] = cli.precip
+                collected["cli_snow"] = cli.snow
+                official_data_missing = False
+
+        collected["official_data_missing"] = official_data_missing
+        collected["resolution_criteria"] = self._build_resolution_criteria(market, climate_info, station)
+
+        summary_parts = [f"CONCLUDED EVENT ({event_date})"]
+        if official_data_missing:
+            summary_parts.append("Official CLI data MISSING")
+        else:
+            if collected.get("cli_high") is not None:
+                summary_parts.append(f"CLI high: {collected['cli_high']}F")
+            if collected.get("cli_low") is not None:
+                summary_parts.append(f"CLI low: {collected['cli_low']}F")
+
+        return {
+            "category": "climate",
+            "data_sources": data_sources,
+            "collected_data": collected,
+            "summary": " | ".join(summary_parts),
         }
 
     async def _legacy_research(self, market: Market) -> dict:

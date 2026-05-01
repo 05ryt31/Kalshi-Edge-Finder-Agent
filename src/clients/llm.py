@@ -59,6 +59,10 @@ Resolution Criteria: {resolution_criteria}
 ## Historical Analysis (Same Category)
 {historical_context}
 
+## Key Rules
+- NEVER use a previous prediction as evidence for a current estimate.
+  Each estimate must be derived independently from current data.
+
 ## Response Format
 Respond with ONLY a JSON object in this format:
 {{
@@ -90,6 +94,9 @@ Description: {description}
 - For future events: NWS observations provide current baseline; forecasts fill the gap.
 - If running_daily_high_f already exceeds the threshold and market is day-of, probability is near 1.0.
 - If running_daily_high_f is far below threshold late in the day, probability drops sharply.
+- For CONCLUDED events (event_concluded: true):
+  ONLY use official CLI report data. Do NOT reference forecasts or previous analyses.
+  If official_data_missing is true, respond with confidence: 0.
 
 ## Historical Analysis (Same Category)
 {historical_context}

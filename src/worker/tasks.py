@@ -76,11 +76,24 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
 
                 for market in filtered:
                     try:
+                        # Skip past events with extreme prices before any research/LLM
+                        if market.is_past_event and market.is_extreme_price:
+                            logger.info(
+                                "skipped_past_extreme",
+                                ticker=market.ticker,
+                                yes_ask=market.yes_ask,
+                            )
+                            continue
+
                         research_data = await research_agent.research(market)
 
-                        historical_context = await historical_service.get_context_for_category(
-                            market.category, exclude_scan_id=scan_id
-                        )
+                        # Suppress historical context for concluded events to prevent echo chamber
+                        if market.is_past_event:
+                            historical_context = ""
+                        else:
+                            historical_context = await historical_service.get_context_for_category(
+                                market.category, exclude_scan_id=scan_id
+                            )
 
                         estimate = await estimator.estimate(
                             market, research_data, historical_context=historical_context

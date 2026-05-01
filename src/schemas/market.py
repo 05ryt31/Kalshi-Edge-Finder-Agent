@@ -25,6 +25,14 @@ class Market(BaseModel):
     close_time: datetime
     expiration_time: datetime
     climate_info: ClimateTickerInfo | None = None
+    ticker_date: date | None = None
+
+    @computed_field
+    @property
+    def event_date(self) -> date | None:
+        if self.climate_info and self.climate_info.event_date:
+            return self.climate_info.event_date
+        return self.ticker_date
 
     @computed_field
     @property
@@ -39,16 +47,12 @@ class Market(BaseModel):
     @computed_field
     @property
     def is_day_of_event(self) -> bool:
-        if self.climate_info is None or self.climate_info.event_date is None:
-            return False
-        return self.climate_info.event_date == date.today()
+        return self.event_date is not None and self.event_date == date.today()
 
     @computed_field
     @property
     def is_past_event(self) -> bool:
-        if self.climate_info is None or self.climate_info.event_date is None:
-            return False
-        return self.climate_info.event_date < date.today()
+        return self.event_date is not None and self.event_date < date.today()
 
     @computed_field
     @property

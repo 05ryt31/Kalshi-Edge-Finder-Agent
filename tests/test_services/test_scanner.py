@@ -1,3 +1,5 @@
+from datetime import date
+
 from src.services.scanner import ScannerService
 from src.utils.ticker_parser import ClimateTickerInfo
 
@@ -8,7 +10,7 @@ class TestScannerClimateInfo:
 
     def test_climate_market_gets_climate_info(self):
         data = {
-            "ticker": "KXHIGHNY-22FEB26-B38.5",
+            "ticker": "KXHIGHNY-26FEB22-B38.5",
             "event_ticker": "KXHIGH",
             "title": "NYC High Temperature",
             "close_time": "2026-02-22T23:59:00Z",
@@ -36,8 +38,43 @@ class TestScannerClimateInfo:
             "close_time": "2026-02-22T23:59:00Z",
         }
         market = self.scanner._parse_market(data)
-        # Category is climate but ticker may not parse
         assert market.category == "climate"
+
+
+class TestScannerTickerDate:
+    def setup_method(self):
+        self.scanner = ScannerService(None)
+
+    def test_climate_market_gets_ticker_date(self):
+        data = {
+            "ticker": "KXHIGHNY-26FEB22-B38.5",
+            "event_ticker": "KXHIGH",
+            "title": "NYC High Temperature",
+            "close_time": "2026-02-22T23:59:00Z",
+        }
+        market = self.scanner._parse_market(data)
+        assert market.ticker_date == date(2026, 2, 22)
+
+    def test_non_climate_market_gets_ticker_date(self):
+        data = {
+            "ticker": "KXDOTA2GAME-26FEB16AURBB-BB",
+            "event_ticker": "KXDOTA2",
+            "title": "Dota 2 Game",
+            "close_time": "2026-02-16T23:59:00Z",
+        }
+        market = self.scanner._parse_market(data)
+        assert market.ticker_date == date(2026, 2, 16)
+        assert market.climate_info is None
+
+    def test_no_date_ticker(self):
+        data = {
+            "ticker": "NBA-LAKERS-ML",
+            "event_ticker": "NBA",
+            "title": "Lakers vs Celtics",
+            "close_time": "2026-02-22T23:59:00Z",
+        }
+        market = self.scanner._parse_market(data)
+        assert market.ticker_date is None
 
 
 class TestScannerCategoryInference:

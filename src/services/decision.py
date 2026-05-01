@@ -135,12 +135,13 @@ class DecisionEngine:
         return max(5.0, round(amount, 2))
 
     def _should_block_extreme_price(self, market: Market, research_data: dict) -> bool:
-        if market.climate_info is None:
-            return False
-
-        # Block past events unconditionally — already resolved, no edge possible
+        # Universal: block past events with extreme prices (any category)
         if market.is_past_event and market.is_extreme_price:
             return True
+
+        # Climate-specific day-of logic requires climate_info
+        if market.climate_info is None:
+            return False
 
         if not market.is_day_of_event:
             return False

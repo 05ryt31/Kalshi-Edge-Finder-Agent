@@ -11,11 +11,12 @@ from src.utils.ticker_parser import ClimateTickerInfo
 
 
 def _make_market(
-    ticker="KXHIGHNY-22FEB26-B38.5",
+    ticker="KXHIGHNY-26FEB22-B38.5",
     title="NYC High Temp",
     category="climate",
     climate_info=None,
     yes_ask=50,
+    ticker_date=None,
 ) -> Market:
     return Market(
         ticker=ticker,
@@ -34,6 +35,7 @@ def _make_market(
         close_time=datetime(2026, 2, 22, 23, 59, tzinfo=timezone.utc),
         expiration_time=datetime(2026, 2, 22, 23, 59, tzinfo=timezone.utc),
         climate_info=climate_info,
+        ticker_date=ticker_date,
     )
 
 
@@ -261,3 +263,53 @@ class TestWeatherResearcherLegacyPath:
 
         assert result["data_sources"] == []
         assert "Error" in result["summary"]
+
+
+class TestWeatherResearcherConcludedEvent:
+    @pytest.mark.asyncio
+    async def test_concluded_event_cli_only(self):
+        """Concluded event should only fetch CLI, no ASOS or OpenWeather."""
+        nws = AsyncMock(spec=NWSClient)
+        nws.get_daily_cli.return_value = DailyCLI(
+            station="CLINYC",
+            report_date=date(2026, 2, 21),
+            high_temp=35.0,
+            low_temp=28.0,
+            precip=0.5,
+            snow=2.0,
+        )
+
+        ow = AsyncMock(spec=OpenWeatherClient)
+
+        climate_info = _make_climate_info(event_date=date(2026, 2, 21))
+        market = _make_market(climate_info=climate_info, ticker_date=date(2026, 2, 21))
+        researcher = WeatherResearcher(ow, nws)
+        result = await researcher.research(market)
+
+        assert result["collected_data"]["event_concluded"] is True
+        assert result["collected_data"]["official_data_missing"] is False
+        assert result["collected_data"]["cli_high"] == 35.0
+        assert "CONCLUDED EVENT" in result["summary"]
+        assert "NWS CLI Report" in result["data_sources"]
+        # Should NOT call ASOS or OpenWeather
+        nws.get_observations.assert_not_called()
+        ow.get_forecast.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_concluded_event_missing_cli(self):
+        """Concluded event with no CLI data should flag official_data_missing."""
+        nws = AsyncMock(spec=NWSClient)
+        nws.get_daily_cli.return_value = None
+
+        ow = AsyncMock(spec=OpenWeatherClient)
+
+        climate_info = _make_climate_info(event_date=date(2026, 2, 21))
+        market = _make_market(climate_info=climate_info, ticker_date=date(2026, 2, 21))
+        researcher = WeatherResearcher(ow, nws)
+        result = await researcher.research(market)
+
+        assert result["collected_data"]["event_concluded"] is True
+        assert result["collected_data"]["official_data_missing"] is True
+        assert "MISSING" in result["summary"]
+        nws.get_observations.assert_not_called()
+        ow.get_forecast.assert_not_called()

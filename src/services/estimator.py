@@ -14,6 +14,17 @@ class ProbabilityEstimator:
     ) -> dict:
         logger.info("estimating_probability", ticker=market.ticker)
 
+        # Safety net: concluded event with no official data → confidence 0
+        collected = research_data.get("collected_data", {})
+        if collected.get("event_concluded") and collected.get("official_data_missing"):
+            logger.info("concluded_no_data", ticker=market.ticker)
+            return {
+                "yes_probability": 0.5,
+                "no_probability": 0.5,
+                "confidence": 0.0,
+                "reasoning": "Concluded event with no official CLI data available.",
+            }
+
         resolution_criteria = self._build_resolution_criteria(market, research_data)
 
         use_climate = market.climate_info is not None
