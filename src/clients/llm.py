@@ -15,6 +15,7 @@ class LLMClient(ABC):
         market_description: str,
         research_data: dict,
         resolution_criteria: str,
+        historical_context: str = "",
     ) -> dict:
         pass
 
@@ -28,6 +29,9 @@ Resolution Criteria: {resolution_criteria}
 
 ## Collected Data
 {research_data}
+
+## Historical Analysis (Same Category)
+{historical_context}
 
 ## Response Format
 Respond with ONLY a JSON object in this format:
@@ -53,12 +57,14 @@ class ClaudeClient(LLMClient):
         market_description: str,
         research_data: dict,
         resolution_criteria: str,
+        historical_context: str = "",
     ) -> dict:
         prompt = ESTIMATION_PROMPT.format(
             title=market_title,
             description=market_description,
             resolution_criteria=resolution_criteria,
             research_data=json.dumps(research_data, indent=2),
+            historical_context=historical_context or "No prior analyses available.",
         )
 
         logger.info("llm_estimate", model=self.model, market=market_title)
@@ -83,12 +89,14 @@ class OpenAIClient(LLMClient):
         market_description: str,
         research_data: dict,
         resolution_criteria: str,
+        historical_context: str = "",
     ) -> dict:
         prompt = ESTIMATION_PROMPT.format(
             title=market_title,
             description=market_description,
             resolution_criteria=resolution_criteria,
             research_data=json.dumps(research_data, indent=2),
+            historical_context=historical_context or "No prior analyses available.",
         )
 
         logger.info("llm_estimate", model=self.model, market=market_title)

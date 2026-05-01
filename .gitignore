@@ -26,6 +26,9 @@ ENV/
 .env.local
 .env.*.local
 
+# Generated Reports
+reports/
+
 # Database
 data/
 *.db
