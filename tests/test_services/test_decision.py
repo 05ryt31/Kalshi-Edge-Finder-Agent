@@ -41,25 +41,27 @@ class TestDecisionEngine:
         self.engine = DecisionEngine(self.settings)
 
     def test_strong_recommendation(self):
+        # Strong now requires conf >= 0.85; edge bar lowered to 0.05.
         market = _make_market(yes_ask=30, no_ask=70)
         estimate = {
             "yes_probability": 0.70,
             "no_probability": 0.30,
-            "confidence": 0.85,
+            "confidence": 0.90,
             "reasoning": "Strong signal",
         }
         rec = self.engine.evaluate(market, estimate, {})
         assert rec is not None
         assert rec.strength == "strong"
         assert rec.side == "yes"
-        assert rec.edge >= 0.30
+        assert rec.edge >= 0.05
 
     def test_medium_recommendation(self):
-        market = _make_market(yes_ask=30, no_ask=70)
+        # Medium: edge >= 0.03, confidence >= 0.75.
+        market = _make_market(yes_ask=45, no_ask=55)
         estimate = {
             "yes_probability": 0.55,
             "no_probability": 0.45,
-            "confidence": 0.65,
+            "confidence": 0.78,
             "reasoning": "Moderate signal",
         }
         rec = self.engine.evaluate(market, estimate, {})
@@ -67,11 +69,12 @@ class TestDecisionEngine:
         assert rec.strength == "medium"
 
     def test_weak_recommendation(self):
-        market = _make_market(yes_ask=30, no_ask=70)
+        # Weak: edge >= 0.02, confidence >= 0.70.
+        market = _make_market(yes_ask=48, no_ask=52)
         estimate = {
-            "yes_probability": 0.50,
-            "no_probability": 0.50,
-            "confidence": 0.55,
+            "yes_probability": 0.52,
+            "no_probability": 0.48,
+            "confidence": 0.71,
             "reasoning": "Weak signal",
         }
         rec = self.engine.evaluate(market, estimate, {})
@@ -81,10 +84,10 @@ class TestDecisionEngine:
     def test_no_recommendation_low_edge(self):
         market = _make_market(yes_ask=50, no_ask=50)
         estimate = {
-            "yes_probability": 0.55,
-            "no_probability": 0.45,
+            "yes_probability": 0.51,
+            "no_probability": 0.49,
             "confidence": 0.50,
-            "reasoning": "Low edge",
+            "reasoning": "Low edge, low confidence",
         }
         rec = self.engine.evaluate(market, estimate, {})
         assert rec is None
@@ -94,7 +97,7 @@ class TestDecisionEngine:
         estimate = {
             "yes_probability": 0.15,
             "no_probability": 0.85,
-            "confidence": 0.85,
+            "confidence": 0.90,
             "reasoning": "NO is better",
         }
         rec = self.engine.evaluate(market, estimate, {})
@@ -102,18 +105,21 @@ class TestDecisionEngine:
         assert rec.side == "no"
 
     def test_position_size_scales_with_strength(self):
-        market = _make_market(yes_ask=20, no_ask=80)
+        # Same market price; strong (higher prob+confidence) → larger Kelly bet.
+        # Both estimates are crafted to produce YES recommendations under the
+        # new thresholds so we can compare suggested_amount monotonically.
+        market = _make_market(yes_ask=30, no_ask=70)
 
         strong_estimate = {
-            "yes_probability": 0.70,
+            "yes_probability": 0.70,  # edge ~0.40 net of fee → strong
             "no_probability": 0.30,
-            "confidence": 0.90,
+            "confidence": 0.95,
             "reasoning": "Strong",
         }
         weak_estimate = {
-            "yes_probability": 0.42,
-            "no_probability": 0.58,
-            "confidence": 0.52,
+            "yes_probability": 0.55,  # edge ~0.25 net of fee, but lower conf → weak
+            "no_probability": 0.45,
+            "confidence": 0.71,
             "reasoning": "Weak",
         }
 
@@ -122,7 +128,37 @@ class TestDecisionEngine:
 
         assert strong_rec is not None
         assert weak_rec is not None
-        assert strong_rec.suggested_amount > weak_rec.suggested_amount
+        assert strong_rec.side == "yes"
+        assert weak_rec.side == "yes"
+        assert strong_rec.strength == "strong"
+        assert weak_rec.strength == "weak"
+        assert strong_rec.suggested_amount > weak_rec.suggested_amount > 0
+
+    def test_kelly_size_zero_when_no_edge(self):
+        # No real edge → no recommendation at all (size is moot).
+        market = _make_market(yes_ask=50, no_ask=50)
+        estimate = {
+            "yes_probability": 0.50,
+            "no_probability": 0.50,
+            "confidence": 0.95,
+            "reasoning": "No edge",
+        }
+        rec = self.engine.evaluate(market, estimate, {})
+        assert rec is None
+
+    def test_fee_reduces_edge(self):
+        # Tight edge that would pass without fee but fails after fee.
+        # yes_prob 0.515 vs yes_ask 50 → raw edge 0.015,
+        # fee at p=0.5 = 0.07*0.25 = 0.0175 → net edge negative → no rec.
+        market = _make_market(yes_ask=50, no_ask=50)
+        estimate = {
+            "yes_probability": 0.515,
+            "no_probability": 0.485,
+            "confidence": 0.90,
+            "reasoning": "Eaten by fees",
+        }
+        rec = self.engine.evaluate(market, estimate, {})
+        assert rec is None
 
 
 class TestExtremePriceBlock:

@@ -34,6 +34,8 @@ class WeatherResearcher:
         "Atlanta": "Atlanta,US",
         "Minneapolis": "Minneapolis,US",
         "Detroit": "Detroit,US",
+        "San Francisco": "San Francisco,US",
+        "SF": "San Francisco,US",
     }
 
     def __init__(self, openweather: OpenWeatherClient, nws: NWSClient | None = None) -> None:

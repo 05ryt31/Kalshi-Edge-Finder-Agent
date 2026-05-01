@@ -48,6 +48,13 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
             estimator = ProbabilityEstimator()
             decision_engine = DecisionEngine(app_settings)
 
+            logger.info(
+                "scan_mode",
+                paper_trading=app_settings.paper_trading,
+                categories=app_settings.categories,
+                max_bet_amount=app_settings.max_bet_amount,
+            )
+
             scan_repo = ScanRepository(session)
             if scan_id:
                 scan = await scan_repo.get(scan_id)

@@ -14,8 +14,11 @@ class FilterService:
     def filter_markets(self, markets: list[Market]) -> list[Market]:
         filtered = [m for m in markets if self._passes_filters(m)]
 
+        # Sort by 24h volume (descending). Highest-liquidity markets first
+        # so we research the markets where price is most informative and
+        # we can actually fill an order without moving the book.
         filtered.sort(
-            key=lambda m: max(m.yes_multiplier, m.no_multiplier),
+            key=lambda m: (m.volume_24h, m.volume),
             reverse=True,
         )
 
