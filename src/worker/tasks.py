@@ -2,7 +2,11 @@ from datetime import datetime, timezone
 
 from src.clients.fred import FREDClient
 from src.clients.kalshi import KalshiClient
+from src.clients.nws import NWSClient
+from src.clients.odds_api import OddsAPIClient
 from src.clients.openweather import OpenWeatherClient
+from src.clients.tavily import TavilyClient
+from src.config import settings
 from src.db.repositories.recommendation import RecommendationRepository
 from src.db.repositories.scan import ScanRepository
 from src.db.repositories.settings import SettingsRepository
@@ -28,6 +32,9 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
     kalshi = KalshiClient()
     openweather = OpenWeatherClient()
     fred = FREDClient()
+    nws = NWSClient()
+    odds_api = OddsAPIClient() if settings.ODDS_API_KEY else None
+    tavily = TavilyClient() if settings.TAVILY_API_KEY else None
 
     try:
         async with async_session_factory() as session:
@@ -37,7 +44,7 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
 
             scanner = ScannerService(kalshi)
             filter_service = FilterService(app_settings)
-            research_agent = ResearchAgent(openweather, fred)
+            research_agent = ResearchAgent(openweather, fred, nws, odds_api, tavily)
             estimator = ProbabilityEstimator()
             decision_engine = DecisionEngine(app_settings)
 
@@ -69,11 +76,24 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
 
                 for market in filtered:
                     try:
+                        # Skip past events with extreme prices before any research/LLM
+                        if market.is_past_event and market.is_extreme_price:
+                            logger.info(
+                                "skipped_past_extreme",
+                                ticker=market.ticker,
+                                yes_ask=market.yes_ask,
+                            )
+                            continue
+
                         research_data = await research_agent.research(market)
 
-                        historical_context = await historical_service.get_context_for_category(
-                            market.category, exclude_scan_id=scan_id
-                        )
+                        # Suppress historical context for concluded events to prevent echo chamber
+                        if market.is_past_event:
+                            historical_context = ""
+                        else:
+                            historical_context = await historical_service.get_context_for_category(
+                                market.category, exclude_scan_id=scan_id
+                            )
 
                         estimate = await estimator.estimate(
                             market, research_data, historical_context=historical_context
@@ -145,6 +165,11 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
         await kalshi.close()
         await openweather.close()
         await fred.close()
+        await nws.close()
+        if odds_api:
+            await odds_api.close()
+        if tavily:
+            await tavily.close()
 
 
 async def _generate_reports(

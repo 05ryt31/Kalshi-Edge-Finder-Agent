@@ -27,6 +27,14 @@ class DecisionEngine:
         research_data: dict,
         scan_id: str | None = None,
     ) -> Recommendation | None:
+        if self._should_block_extreme_price(market, research_data):
+            logger.info(
+                "extreme_price_blocked",
+                ticker=market.ticker,
+                yes_ask=market.yes_ask,
+            )
+            return None
+
         yes_implied = market.yes_ask / 100
         no_implied = market.no_ask / 100
 
@@ -125,3 +133,46 @@ class DecisionEngine:
         amount = self.settings.max_bet_amount * multiplier
 
         return max(5.0, round(amount, 2))
+
+    def _should_block_extreme_price(self, market: Market, research_data: dict) -> bool:
+        # Universal: block past events with extreme prices (any category)
+        if market.is_past_event and market.is_extreme_price:
+            return True
+
+        # Climate-specific day-of logic requires climate_info
+        if market.climate_info is None:
+            return False
+
+        if not market.is_day_of_event:
+            return False
+        if not market.is_extreme_price:
+            return False
+
+        collected = research_data.get("collected_data", {})
+        running_high = collected.get("running_daily_high_f")
+        running_low = collected.get("running_daily_low_f")
+
+        # No NWS data → block (refuse to bet blind on extreme-priced day-of)
+        if running_high is None and running_low is None:
+            return True
+
+        # Check if NWS data explicitly contradicts the market price
+        threshold = market.climate_info.threshold
+        market_type = market.climate_info.market_type
+
+        if market_type == "high_temp" and running_high is not None:
+            if market.yes_ask >= 95 and running_high < threshold - 5:
+                # Market says 95c YES but running high is far below threshold → allow bet
+                return False
+            if market.yes_ask <= 5 and running_high > threshold + 2:
+                # Market says 5c YES but running high already exceeds threshold → allow bet
+                return False
+
+        if market_type == "low_temp" and running_low is not None:
+            if market.yes_ask >= 95 and running_low > threshold + 5:
+                return False
+            if market.yes_ask <= 5 and running_low < threshold - 2:
+                return False
+
+        # Default: block (assume market resolved correctly at extreme prices)
+        return True

@@ -1,7 +1,11 @@
-from datetime import datetime
+from __future__ import annotations
+
+from datetime import date, datetime
 from typing import Literal
 
 from pydantic import BaseModel, computed_field
+
+from src.utils.ticker_parser import ClimateTickerInfo
 
 
 class Market(BaseModel):
@@ -10,7 +14,7 @@ class Market(BaseModel):
     title: str
     subtitle: str | None = None
     category: Literal["climate", "economics", "sports", "companies", "other"]
-    status: Literal["open", "closed", "settled"]
+    status: Literal["open", "active", "closed", "settled"]
     yes_ask: int
     no_ask: int
     yes_bid: int
@@ -20,6 +24,15 @@ class Market(BaseModel):
     volume_24h: int
     close_time: datetime
     expiration_time: datetime
+    climate_info: ClimateTickerInfo | None = None
+    ticker_date: date | None = None
+
+    @computed_field
+    @property
+    def event_date(self) -> date | None:
+        if self.climate_info and self.climate_info.event_date:
+            return self.climate_info.event_date
+        return self.ticker_date
 
     @computed_field
     @property
@@ -30,6 +43,21 @@ class Market(BaseModel):
     @property
     def no_multiplier(self) -> float:
         return round(100 / self.no_ask, 2) if self.no_ask > 0 else 0
+
+    @computed_field
+    @property
+    def is_day_of_event(self) -> bool:
+        return self.event_date is not None and self.event_date == date.today()
+
+    @computed_field
+    @property
+    def is_past_event(self) -> bool:
+        return self.event_date is not None and self.event_date < date.today()
+
+    @computed_field
+    @property
+    def is_extreme_price(self) -> bool:
+        return self.yes_ask >= 95 or self.yes_ask <= 5
 
     model_config = {"from_attributes": True}
 

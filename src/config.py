@@ -13,13 +13,16 @@ class Settings(BaseSettings):
     KALSHI_PRIVATE_KEY: str = ""
     KALSHI_USE_DEMO: bool = True
 
-    LLM_PROVIDER: Literal["anthropic", "openai"] = "anthropic"
+    LLM_PROVIDER: Literal["anthropic", "openai", "gemini"] = "anthropic"
     ANTHROPIC_API_KEY: str = ""
     OPENAI_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
     LLM_MODEL: str = ""
 
     OPENWEATHER_API_KEY: str = ""
     FRED_API_KEY: str = ""
+    ODDS_API_KEY: str = ""
+    TAVILY_API_KEY: str = ""
 
     EDGE_THRESHOLD: float = 0.20
     MIN_MULTIPLIER: float = 2.0
