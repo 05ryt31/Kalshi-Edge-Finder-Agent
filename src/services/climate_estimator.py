@@ -4,30 +4,32 @@ Replaces LLM-based estimation for climate/weather markets, where the
 underlying random variable is a physical observable with known measurement
 infrastructure (NWS ASOS / CLI) and characterizable forecast error.
 
-Why not LLM here:
-- Markets like "high temp >= 75F in NYC tomorrow" have a real probability
-  governed by the forecast distribution, not by language reasoning.
-- ASOS running_high vs threshold gives near-deterministic resolution intra-day.
-- Forecast error is well-characterized empirically (~2-3F MAE day-ahead).
-
-Phase 2a uses hardcoded forecast-error sigmas. Phase 2b will replace these
-with NOAA-derived empirical distributions per (city, lead_time).
+Phase 2b additions:
+- Optional ClimatologyService injection for empirically-derived sigmas.
+- Combined sigma blends short-term forecast skill with long-term
+  climatological variability:
+      effective_sigma = sqrt(forecast_sigma**2 + (alpha * climo_std)**2)
+  where alpha shrinks toward 0 as we get closer to the event (forecast
+  becomes more informative) and toward 1 far out (climatology dominates).
+- Climatological prior fallback when forecast data is missing entirely.
 """
 
 from __future__ import annotations
 
+from datetime import date as date_t, datetime, timezone
 from math import erf, sqrt
-from typing import Any
+from typing import Any, Protocol
 
 from src.schemas.market import Market
+from src.services.climatology import ClimatologyValue
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
 
 # Forecast error standard deviations (degrees F) by lead time bucket.
-# Sourced from typical NWS gridpoint forecast verification: ~1.5F at 0-6h,
-# growing to ~3.5F at 48h+. Will be replaced with empirical NOAA data in 2b.
+# Rough NWS gridpoint forecast verification numbers — will be refined per
+# (city, lead) by paper-trade calibration in 2c.
 FORECAST_SIGMA_BY_LEAD_HOURS: list[tuple[float, float]] = [
     (3.0, 1.5),     # within 3 hours
     (6.0, 2.0),     # within 6 hours
@@ -38,11 +40,38 @@ FORECAST_SIGMA_BY_LEAD_HOURS: list[tuple[float, float]] = [
 DEFAULT_FAR_SIGMA = 4.5  # > 2 days out
 
 
+class ClimatologyProvider(Protocol):
+    """Read-only view of ClimatologyService used by the estimator.
+
+    All methods are async since the underlying implementation hits the DB.
+    Returns ClimatologyValue (mean/std/n_obs) for the
+    (station, calendar_day, market_type) cell, or None if no climatology
+    is available for that cell.
+    """
+
+    async def get(
+        self, station: str, target_date: date_t, market_type: str
+    ) -> ClimatologyValue | None: ...
+
+
 def _sigma_for_lead(hours_to_event: float) -> float:
     for boundary, sigma in FORECAST_SIGMA_BY_LEAD_HOURS:
         if hours_to_event <= boundary:
             return sigma
     return DEFAULT_FAR_SIGMA
+
+
+def _climo_alpha(hours_to_event: float) -> float:
+    """How much weight to put on climatological variance.
+
+    0 at the event itself (NWS in-day observations dominate), grows to 1.0
+    when we're > 5 days out. Linear ramp from 0 → 1 over 0-120h.
+    """
+    if hours_to_event <= 0:
+        return 0.0
+    if hours_to_event >= 120.0:
+        return 1.0
+    return hours_to_event / 120.0
 
 
 def _norm_cdf(z: float) -> float:
@@ -53,10 +82,7 @@ def _norm_cdf(z: float) -> float:
 def _prob_observable_at_least(
     forecast_value: float, threshold: float, sigma: float
 ) -> float:
-    """P(X >= threshold) for X ~ Normal(forecast_value, sigma).
-
-    Returns 1 - Phi((threshold - forecast) / sigma).
-    """
+    """P(X >= threshold) for X ~ Normal(forecast_value, sigma)."""
     if sigma <= 0:
         return 1.0 if forecast_value >= threshold else 0.0
     z = (threshold - forecast_value) / sigma
@@ -68,11 +94,26 @@ def _clip_prob(p: float) -> float:
     return max(0.005, min(0.995, p))
 
 
+def _combined_sigma(forecast_sigma: float, climo_std: float | None, alpha: float) -> float:
+    """Blend forecast and climatological variance.
+
+    sigma_eff = sqrt(forecast_sigma^2 + (alpha * climo_std)^2)
+
+    Climatology *adds* uncertainty rather than replacing it: even with a
+    point forecast, real outcomes wander around its mean by at least the
+    weather variability characteristic of that calendar day.
+    """
+    if climo_std is None or climo_std <= 0 or alpha <= 0:
+        return forecast_sigma
+    return sqrt(forecast_sigma * forecast_sigma + (alpha * climo_std) * (alpha * climo_std))
+
+
 class ClimateEstimator:
     """Physics-based estimator for climate markets.
 
-    estimate(market, research_data) returns the same dict shape as the
-    LLM-based ProbabilityEstimator for drop-in compatibility:
+    Async because climatology lookups hit the DB. estimate() returns the
+    same dict shape as the LLM-based ProbabilityEstimator for drop-in
+    compatibility:
         {
             "yes_probability": float,
             "no_probability": float,
@@ -85,33 +126,61 @@ class ClimateEstimator:
     # treat as effectively resolved (CLI vs ASOS may differ by ~1F).
     ASOS_DECISIVE_MARGIN_F = 1.5
 
-    def estimate(self, market: Market, research_data: dict[str, Any]) -> dict:
+    def __init__(self, climatology: ClimatologyProvider | None = None) -> None:
+        self.climatology = climatology
+
+    async def estimate(self, market: Market, research_data: dict[str, Any]) -> dict:
         info = market.climate_info
         if info is None:
             return self._uncertain("no_climate_info")
 
-        # Phase 2a only handles 'above_equal' bracket semantics
-        # (resolves YES iff observed >= threshold). Between/under brackets
-        # need different logic and are deferred to a follow-up.
+        # Phase 2a only handles 'above_equal' bracket semantics.
         if info.bracket_type != "above_equal":
             return self._uncertain(f"unsupported_bracket:{info.bracket_type}")
 
         collected = research_data.get("collected_data", {})
 
-        # Concluded events: trust CLI report only.
         if collected.get("event_concluded"):
             return self._estimate_concluded(market, collected)
 
         market_type = info.market_type
+        climo = await self._lookup_climatology(market, market_type)
 
         if market_type == "high_temp":
-            return self._estimate_high_temp(market, collected)
+            return self._estimate_high_temp(market, collected, climo)
         if market_type == "low_temp":
-            return self._estimate_low_temp(market, collected)
+            return self._estimate_low_temp(market, collected, climo)
         if market_type in ("snow", "rain"):
-            return self._estimate_precip(market, collected)
+            return self._estimate_precip(market, collected, climo)
 
         return self._uncertain(f"unsupported_market_type:{market_type}")
+
+    # ------------------------------------------------------------------
+    # Climatology lookup
+    # ------------------------------------------------------------------
+
+    async def _lookup_climatology(
+        self, market: Market, market_type: str
+    ) -> ClimatologyValue | None:
+        if self.climatology is None:
+            return None
+        info = market.climate_info
+        target = info.event_date or market.close_time.date()
+        from src.utils.ticker_parser import get_nws_station
+
+        station = get_nws_station(info.city_code)
+        if station is None:
+            return None
+        try:
+            return await self.climatology.get(station, target, market_type)
+        except Exception as e:
+            logger.warning(
+                "climatology_lookup_failed",
+                station=station,
+                market_type=market_type,
+                error=str(e),
+            )
+            return None
 
     # ------------------------------------------------------------------
     # Concluded
@@ -130,15 +199,14 @@ class ClimateEstimator:
             return self._uncertain("concluded_no_observed_value")
 
         yes = self._yes_prob_from_observed(market_type, observed, threshold)
-        return {
-            "yes_probability": _clip_prob(yes),
-            "no_probability": _clip_prob(1 - yes),
-            "confidence": 0.99,
-            "reasoning": (
+        return _result(
+            yes=yes,
+            confidence=0.99,
+            reasoning=(
                 f"Concluded event. CLI observed {market_type}={observed} vs "
                 f"threshold {threshold}. Resolution effectively known."
             ),
-        }
+        )
 
     @staticmethod
     def _observed_value_for_concluded(market_type: str, collected: dict) -> float | None:
@@ -154,29 +222,24 @@ class ClimateEstimator:
 
     @staticmethod
     def _yes_prob_from_observed(market_type: str, observed: float, threshold: float) -> float:
-        # All four supported market types resolve YES when observed >= threshold
-        # under the "above_equal" bracket. Bracket nuances (between/under) are
-        # not yet handled — return 0.5 in unsupported brackets via caller.
-        if market_type in ("high_temp", "snow", "rain"):
-            return 0.99 if observed >= threshold else 0.01
-        if market_type == "low_temp":
-            # low_temp "above_equal" semantically means low temp >= threshold,
-            # i.e. it didn't get colder than threshold.
-            return 0.99 if observed >= threshold else 0.01
-        return 0.5
+        return 0.99 if observed >= threshold else 0.01
 
     # ------------------------------------------------------------------
     # High temperature
     # ------------------------------------------------------------------
 
-    def _estimate_high_temp(self, market: Market, collected: dict) -> dict:
+    def _estimate_high_temp(
+        self, market: Market, collected: dict, climo: ClimatologyValue | None
+    ) -> dict:
         info = market.climate_info
         threshold = info.threshold
         running_high = collected.get("running_daily_high_f")
         forecast_high = self._forecast_peak_high(collected)
         is_day_of = collected.get("is_day_of_event") or market.is_day_of_event
+        hours_left = self._hours_to_close(market)
+        climo_std = climo.std if climo is not None else None
 
-        # Day-of decisive: ASOS running high already past threshold.
+        # Day-of decisive
         if running_high is not None and is_day_of:
             margin = running_high - threshold
             if margin >= self.ASOS_DECISIVE_MARGIN_F:
@@ -184,48 +247,65 @@ class ClimateEstimator:
                     yes=0.97,
                     confidence=0.95,
                     reasoning=(
-                        f"Day-of: ASOS running high {running_high}F already exceeds "
-                        f"threshold {threshold}F by {margin:.1f}F. Near-certain YES."
+                        f"Day-of: ASOS running high {running_high}F exceeds "
+                        f"threshold {threshold}F by {margin:.1f}F."
                     ),
                 )
 
-        # Day-of: running_high known but below threshold; estimate remaining peak.
+        # Day-of with forecast
         if running_high is not None and is_day_of and forecast_high is not None:
             peak_estimate = max(running_high, forecast_high)
-            sigma = _sigma_for_lead(self._hours_to_close(market))
+            base_sigma = _sigma_for_lead(hours_left)
+            sigma = _combined_sigma(base_sigma, climo_std, _climo_alpha(hours_left))
             yes = _prob_observable_at_least(peak_estimate, threshold, sigma)
             return _result(
                 yes=yes,
                 confidence=0.85,
                 reasoning=(
                     f"Day-of: running high {running_high}F, forecast peak "
-                    f"{forecast_high}F, threshold {threshold}F, sigma {sigma}F."
+                    f"{forecast_high}F, threshold {threshold}F, "
+                    f"sigma {sigma:.2f}F (climo_std={climo_std})."
                 ),
             )
 
-        # Day-of without forecast: rely on running high vs threshold + small sigma
+        # Day-of without forecast
         if running_high is not None and is_day_of:
-            sigma = 2.0
+            sigma = _combined_sigma(2.0, climo_std, _climo_alpha(hours_left))
             yes = _prob_observable_at_least(running_high, threshold, sigma)
             return _result(
                 yes=yes,
                 confidence=0.70,
                 reasoning=(
                     f"Day-of: running high {running_high}F, no forecast, "
-                    f"threshold {threshold}F, sigma {sigma}F (heuristic)."
+                    f"sigma {sigma:.2f}F (heuristic+climo)."
                 ),
             )
 
-        # Future event: pure forecast.
+        # Future event with forecast
         if forecast_high is not None:
-            sigma = _sigma_for_lead(self._hours_to_close(market))
+            base_sigma = _sigma_for_lead(hours_left)
+            sigma = _combined_sigma(base_sigma, climo_std, _climo_alpha(hours_left))
             yes = _prob_observable_at_least(forecast_high, threshold, sigma)
             return _result(
                 yes=yes,
                 confidence=0.65,
                 reasoning=(
                     f"Future: forecast high {forecast_high}F vs threshold "
-                    f"{threshold}F, sigma {sigma}F."
+                    f"{threshold}F, sigma {sigma:.2f}F (climo_std={climo_std})."
+                ),
+            )
+
+        # Climatological-only fallback (no forecast, no running high).
+        # Confidence is intentionally low so DecisionEngine declines unless
+        # the threshold is far from the climo mean.
+        if climo is not None:
+            yes = _prob_observable_at_least(climo.mean, threshold, climo.std)
+            return _result(
+                yes=yes,
+                confidence=0.45,
+                reasoning=(
+                    f"Climatology-only: historical mean high {climo.mean:.1f}F, "
+                    f"std {climo.std:.2f}F (n={climo.n_obs}), threshold {threshold}F."
                 ),
             )
 
@@ -235,61 +315,76 @@ class ClimateEstimator:
     # Low temperature
     # ------------------------------------------------------------------
 
-    def _estimate_low_temp(self, market: Market, collected: dict) -> dict:
+    def _estimate_low_temp(
+        self, market: Market, collected: dict, climo: ClimatologyValue | None
+    ) -> dict:
         info = market.climate_info
         threshold = info.threshold
         running_low = collected.get("running_daily_low_f")
         forecast_low = self._forecast_min_low(collected)
         is_day_of = collected.get("is_day_of_event") or market.is_day_of_event
+        hours_left = self._hours_to_close(market)
+        climo_std = climo.std if climo is not None else None
 
-        # Day-of decisive: running_low already < threshold by margin → YES (low >= threshold) is dead.
         if running_low is not None and is_day_of:
             if threshold - running_low >= self.ASOS_DECISIVE_MARGIN_F:
                 return _result(
                     yes=0.03,
                     confidence=0.95,
                     reasoning=(
-                        f"Day-of: ASOS running low {running_low}F already below "
+                        f"Day-of: ASOS running low {running_low}F below "
                         f"threshold {threshold}F by "
-                        f"{threshold - running_low:.1f}F. Near-certain NO."
+                        f"{threshold - running_low:.1f}F."
                     ),
                 )
 
         if running_low is not None and is_day_of and forecast_low is not None:
-            # Realized minimum is min(running_low, future_low).
             min_estimate = min(running_low, forecast_low)
-            sigma = _sigma_for_lead(self._hours_to_close(market))
-            # YES = (low_temp_realized >= threshold)
+            base_sigma = _sigma_for_lead(hours_left)
+            sigma = _combined_sigma(base_sigma, climo_std, _climo_alpha(hours_left))
             yes = _prob_observable_at_least(min_estimate, threshold, sigma)
             return _result(
                 yes=yes,
                 confidence=0.85,
                 reasoning=(
                     f"Day-of: running low {running_low}F, forecast min "
-                    f"{forecast_low}F, threshold {threshold}F, sigma {sigma}F."
+                    f"{forecast_low}F, threshold {threshold}F, sigma {sigma:.2f}F."
                 ),
             )
 
         if running_low is not None and is_day_of:
-            sigma = 2.0
+            sigma = _combined_sigma(2.0, climo_std, _climo_alpha(hours_left))
             yes = _prob_observable_at_least(running_low, threshold, sigma)
             return _result(
                 yes=yes,
                 confidence=0.70,
                 reasoning=(
-                    f"Day-of: running low {running_low}F, no forecast, sigma {sigma}F."
+                    f"Day-of: running low {running_low}F, no forecast, "
+                    f"sigma {sigma:.2f}F."
                 ),
             )
 
         if forecast_low is not None:
-            sigma = _sigma_for_lead(self._hours_to_close(market))
+            base_sigma = _sigma_for_lead(hours_left)
+            sigma = _combined_sigma(base_sigma, climo_std, _climo_alpha(hours_left))
             yes = _prob_observable_at_least(forecast_low, threshold, sigma)
             return _result(
                 yes=yes,
                 confidence=0.65,
                 reasoning=(
                     f"Future: forecast low {forecast_low}F vs threshold "
-                    f"{threshold}F, sigma {sigma}F."
+                    f"{threshold}F, sigma {sigma:.2f}F."
+                ),
+            )
+
+        if climo is not None:
+            yes = _prob_observable_at_least(climo.mean, threshold, climo.std)
+            return _result(
+                yes=yes,
+                confidence=0.45,
+                reasoning=(
+                    f"Climatology-only: historical mean low {climo.mean:.1f}F, "
+                    f"std {climo.std:.2f}F (n={climo.n_obs}), threshold {threshold}F."
                 ),
             )
 
@@ -299,7 +394,9 @@ class ClimateEstimator:
     # Snow / rain
     # ------------------------------------------------------------------
 
-    def _estimate_precip(self, market: Market, collected: dict) -> dict:
+    def _estimate_precip(
+        self, market: Market, collected: dict, climo: ClimatologyValue | None
+    ) -> dict:
         info = market.climate_info
         threshold = info.threshold
         market_type = info.market_type
@@ -314,15 +411,26 @@ class ClimateEstimator:
                     yes=0.97,
                     confidence=0.90,
                     reasoning=(
-                        f"Day-of: CLI {market_type} {observed} already exceeds "
-                        f"threshold {threshold}. Near-certain YES."
+                        f"Day-of: CLI {market_type} {observed} exceeds "
+                        f"threshold {threshold}."
                     ),
                 )
 
-        # No reliable forecast pipeline for precip yet — return uncertain so
-        # DecisionEngine declines to bet. Phase 2b adds NWS quantitative
-        # precipitation forecast (QPF) with empirical sigma.
-        return self._uncertain(f"{market_type}_forecast_unavailable")
+        # Climatological prior — precip distribution is heavy-tailed, so
+        # confidence stays low. DecisionEngine will only act if threshold
+        # is far in the tail relative to climo mean.
+        if climo is not None and climo.std > 0:
+            yes = _prob_observable_at_least(climo.mean, threshold, climo.std)
+            return _result(
+                yes=yes,
+                confidence=0.40,
+                reasoning=(
+                    f"Climatology-only ({market_type}): mean {climo.mean:.2f}, "
+                    f"std {climo.std:.2f}, threshold {threshold}."
+                ),
+            )
+
+        return self._uncertain(f"{market_type}_no_signal")
 
     # ------------------------------------------------------------------
     # Helpers
@@ -333,7 +441,6 @@ class ClimateEstimator:
         forecast = collected.get("forecast")
         if not forecast:
             return None
-        # forecast is a list of {time, temp, conditions} from weather.py
         try:
             temps = [item["temp"] for item in forecast if item.get("temp") is not None]
             return max(temps) if temps else None
@@ -353,8 +460,6 @@ class ClimateEstimator:
 
     @staticmethod
     def _hours_to_close(market: Market) -> float:
-        from datetime import datetime, timezone
-
         delta = market.close_time - datetime.now(timezone.utc)
         return max(0.0, delta.total_seconds() / 3600.0)
 
