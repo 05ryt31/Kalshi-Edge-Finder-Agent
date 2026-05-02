@@ -134,3 +134,44 @@ class TestNWSClientLatestObservation:
         result = await client.get_nws_latest_observation("KNYC")
         assert result is None
         await client.close()
+
+
+class TestDailySummaries:
+    def test_parse_daily_csv(self):
+        csv_text = (
+            "station,day,max_temp_f,min_temp_f,max_dewpoint_f,min_dewpoint_f,precip_in,"
+            "avg_wind_speed_kts,avg_wind_drct,min_rh,avg_rh,max_rh,snow_in,snowd_in,"
+            "min_feel,avg_feel,max_feel,max_wind_speed_kts,max_wind_gust_kts,srad_mj,"
+            "climo_high_f,climo_low_f,climo_precip_in\n"
+            "NYC,2024-07-01,81.0,64.0,,,0.03,,,,,,0.0,,,,,,,,,,\n"
+            "NYC,2024-07-02,86.0,66.0,,,M,,,,,,T,,,,,,,,,,\n"
+        )
+        rows = NWSClient._parse_daily_csv(csv_text, "KNYC")
+        assert len(rows) == 2
+        assert rows[0].obs_date == date(2024, 7, 1)
+        assert rows[0].high_temp_f == 81.0
+        assert rows[0].low_temp_f == 64.0
+        assert rows[0].precip_in == 0.03
+        assert rows[0].snow_in == 0.0
+        assert rows[1].precip_in is None  # 'M'
+        assert rows[1].snow_in is None  # 'T'
+
+    @pytest.mark.asyncio
+    async def test_unknown_station_returns_empty(self):
+        client = NWSClient()
+        result = await client.get_daily_summaries(
+            "KZZZ", date(2024, 1, 1), date(2024, 1, 5)
+        )
+        assert result == []
+        await client.close()
+
+    @pytest.mark.asyncio
+    async def test_returns_empty_on_error(self):
+        client = NWSClient()
+        client.client = AsyncMock()
+        client.client.get = AsyncMock(side_effect=Exception("boom"))
+        result = await client.get_daily_summaries(
+            "KNYC", date(2024, 1, 1), date(2024, 1, 5)
+        )
+        assert result == []
+        await client.close()

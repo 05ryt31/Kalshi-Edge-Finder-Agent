@@ -10,6 +10,8 @@ from src.db.repositories.settings import SettingsRepository
 from src.db.session import async_session_factory
 from src.schemas.report import ScanReportMetadata
 from src.schemas.settings import Settings
+from src.services.climate_estimator import ClimateEstimator
+from src.services.climatology import ClimatologyService
 from src.services.decision import DecisionEngine
 from src.services.estimator import ProbabilityEstimator
 from src.services.filter import FilterService
@@ -39,7 +41,10 @@ async def run_scan_task(*, scan_id: str | None = None) -> str:
             scanner = ScannerService(kalshi)
             filter_service = FilterService(app_settings)
             research_agent = ResearchAgent(openweather, nws)
-            estimator = ProbabilityEstimator()
+            climatology_service = ClimatologyService(session)
+            estimator = ProbabilityEstimator(
+                climate_estimator=ClimateEstimator(climatology=climatology_service)
+            )
             decision_engine = DecisionEngine(app_settings)
 
             logger.info(

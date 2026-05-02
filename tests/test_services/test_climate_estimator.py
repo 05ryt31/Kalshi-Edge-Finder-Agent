@@ -89,7 +89,8 @@ class TestHighTempEstimation:
     def setup_method(self):
         self.estimator = ClimateEstimator()
 
-    def test_day_of_running_high_already_exceeds_threshold(self):
+    @pytest.mark.asyncio
+    async def test_day_of_running_high_already_exceeds_threshold(self):
         market = _make_market(threshold=75.0, days_to_close=0)
         research = {
             "collected_data": {
@@ -97,12 +98,13 @@ class TestHighTempEstimation:
                 "is_day_of_event": True,
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["yes_probability"] >= 0.95
         assert result["confidence"] >= 0.9
         assert "exceeds threshold" in result["reasoning"]
 
-    def test_day_of_running_high_far_below_threshold(self):
+    @pytest.mark.asyncio
+    async def test_day_of_running_high_far_below_threshold(self):
         # Running high 60F vs threshold 80F, no forecast → should be near 0.
         market = _make_market(threshold=80.0, days_to_close=0)
         research = {
@@ -111,10 +113,11 @@ class TestHighTempEstimation:
                 "is_day_of_event": True,
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["yes_probability"] < 0.1
 
-    def test_day_of_with_forecast_combines_running_and_peak(self):
+    @pytest.mark.asyncio
+    async def test_day_of_with_forecast_combines_running_and_peak(self):
         market = _make_market(threshold=78.0, days_to_close=0)
         research = {
             "collected_data": {
@@ -126,12 +129,13 @@ class TestHighTempEstimation:
                 ],
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         # Peak estimate = max(76, 80) = 80 vs threshold 78 → > 0.5
         assert result["yes_probability"] > 0.5
         assert result["confidence"] > 0.5
 
-    def test_future_event_uses_forecast_only(self):
+    @pytest.mark.asyncio
+    async def test_future_event_uses_forecast_only(self):
         market = _make_market(threshold=75.0, days_to_close=2)
         research = {
             "collected_data": {
@@ -142,14 +146,15 @@ class TestHighTempEstimation:
                 ],
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         # Forecast peak 78 vs threshold 75, sigma ~3.5F → yes prob > 0.5 but not certain
         assert 0.5 < result["yes_probability"] < 0.95
 
-    def test_no_signal_returns_uncertain(self):
+    @pytest.mark.asyncio
+    async def test_no_signal_returns_uncertain(self):
         market = _make_market(threshold=75.0, days_to_close=0)
         research = {"collected_data": {"is_day_of_event": True}}
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["confidence"] == 0.0
         assert result["yes_probability"] == 0.5
 
@@ -163,7 +168,8 @@ class TestLowTempEstimation:
     def setup_method(self):
         self.estimator = ClimateEstimator()
 
-    def test_day_of_running_low_already_below_threshold(self):
+    @pytest.mark.asyncio
+    async def test_day_of_running_low_already_below_threshold(self):
         # Threshold 40F (low must stay >=40 for YES); running low 30F → already failed.
         market = _make_market(market_type="low_temp", threshold=40.0)
         research = {
@@ -172,11 +178,12 @@ class TestLowTempEstimation:
                 "is_day_of_event": True,
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["yes_probability"] <= 0.1
         assert result["confidence"] >= 0.9
 
-    def test_day_of_running_low_above_threshold_with_forecast(self):
+    @pytest.mark.asyncio
+    async def test_day_of_running_low_above_threshold_with_forecast(self):
         market = _make_market(market_type="low_temp", threshold=40.0)
         research = {
             "collected_data": {
@@ -188,7 +195,7 @@ class TestLowTempEstimation:
                 ],
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         # min(running_low=45, forecast_min=48) = 45 vs threshold 40 → high YES
         assert result["yes_probability"] > 0.7
 
@@ -202,7 +209,8 @@ class TestConcludedEstimation:
     def setup_method(self):
         self.estimator = ClimateEstimator()
 
-    def test_concluded_high_temp_yes(self):
+    @pytest.mark.asyncio
+    async def test_concluded_high_temp_yes(self):
         market = _make_market(threshold=75.0, event_date=date(2026, 1, 1))
         research = {
             "collected_data": {
@@ -211,11 +219,12 @@ class TestConcludedEstimation:
                 "cli_high": 80.0,
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["yes_probability"] >= 0.95
         assert result["confidence"] >= 0.95
 
-    def test_concluded_high_temp_no(self):
+    @pytest.mark.asyncio
+    async def test_concluded_high_temp_no(self):
         market = _make_market(threshold=75.0, event_date=date(2026, 1, 1))
         research = {
             "collected_data": {
@@ -224,10 +233,11 @@ class TestConcludedEstimation:
                 "cli_high": 70.0,
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["yes_probability"] <= 0.05
 
-    def test_concluded_missing_data_returns_uncertain(self):
+    @pytest.mark.asyncio
+    async def test_concluded_missing_data_returns_uncertain(self):
         market = _make_market(threshold=75.0, event_date=date(2026, 1, 1))
         research = {
             "collected_data": {
@@ -235,7 +245,7 @@ class TestConcludedEstimation:
                 "official_data_missing": True,
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["confidence"] == 0.0
 
 
@@ -248,7 +258,8 @@ class TestPrecipEstimation:
     def setup_method(self):
         self.estimator = ClimateEstimator()
 
-    def test_day_of_snow_already_exceeded(self):
+    @pytest.mark.asyncio
+    async def test_day_of_snow_already_exceeded(self):
         market = _make_market(market_type="snow", threshold=2.0)
         research = {
             "collected_data": {
@@ -256,13 +267,14 @@ class TestPrecipEstimation:
                 "cli_snow": 3.5,
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["yes_probability"] >= 0.95
 
-    def test_precip_without_signal_returns_uncertain(self):
+    @pytest.mark.asyncio
+    async def test_precip_without_signal_returns_uncertain(self):
         market = _make_market(market_type="rain", threshold=0.5)
         research = {"collected_data": {"is_day_of_event": False}}
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["confidence"] == 0.0
 
 
@@ -337,7 +349,8 @@ class TestBracketSemantics:
     def setup_method(self):
         self.estimator = ClimateEstimator()
 
-    def test_between_bracket_returns_uncertain(self):
+    @pytest.mark.asyncio
+    async def test_between_bracket_returns_uncertain(self):
         market = _make_market(threshold=75.0, bracket_type="between")
         research = {
             "collected_data": {
@@ -345,11 +358,12 @@ class TestBracketSemantics:
                 "is_day_of_event": True,
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["confidence"] == 0.0
         assert "unsupported_bracket" in result["reasoning"]
 
-    def test_under_bracket_returns_uncertain(self):
+    @pytest.mark.asyncio
+    async def test_under_bracket_returns_uncertain(self):
         market = _make_market(threshold=75.0, bracket_type="under")
         research = {
             "collected_data": {
@@ -357,6 +371,75 @@ class TestBracketSemantics:
                 "is_day_of_event": True,
             }
         }
-        result = self.estimator.estimate(market, research)
+        result = await self.estimator.estimate(market, research)
         assert result["confidence"] == 0.0
         assert "unsupported_bracket" in result["reasoning"]
+
+
+# ---------------------------------------------------------------------------
+# Climatology integration
+# ---------------------------------------------------------------------------
+
+
+class _FakeClimo:
+    """Stub ClimatologyProvider for tests."""
+
+    def __init__(self, mean: float, std: float, n_obs: int = 100) -> None:
+        from src.services.climatology import ClimatologyValue
+        self.value = ClimatologyValue(mean=mean, std=std, n_obs=n_obs)
+
+    async def get(self, station, target_date, market_type):
+        return self.value
+
+
+class _NoneClimo:
+    async def get(self, station, target_date, market_type):
+        return None
+
+
+class TestClimatologyIntegration:
+    """Phase 2b: ClimateEstimator should blend forecast sigma with
+    climatological std and fall back to climo prior when forecast is missing."""
+
+    @pytest.mark.asyncio
+    async def test_climatology_inflates_sigma_for_future_event(self):
+        # 2 days out, forecast peak just over threshold. Without climo,
+        # forecast sigma ~3F → high yes prob. With climo std=8F (e.g. shoulder
+        # season swings), sigma should grow and yes prob should drop.
+        market = _make_market(threshold=75.0, days_to_close=2)
+        research = {
+            "collected_data": {
+                "is_day_of_event": False,
+                "forecast": [{"time": "+24h", "temp": 76.0}],
+            }
+        }
+
+        no_climo = ClimateEstimator(climatology=_NoneClimo())
+        with_climo = ClimateEstimator(climatology=_FakeClimo(mean=70, std=8.0))
+
+        result_no = await no_climo.estimate(market, research)
+        result_with = await with_climo.estimate(market, research)
+
+        assert result_with["yes_probability"] < result_no["yes_probability"]
+
+    @pytest.mark.asyncio
+    async def test_climatology_only_fallback_when_no_forecast(self):
+        # No running high, no forecast — climatology-only path.
+        market = _make_market(threshold=85.0, days_to_close=2)
+        research = {"collected_data": {"is_day_of_event": False}}
+        # Climo mean 75, std 4 → P(X >= 85) = P(Z >= 2.5) ~ 0.62%
+        estimator = ClimateEstimator(climatology=_FakeClimo(mean=75, std=4.0))
+        result = await estimator.estimate(market, research)
+
+        assert result["confidence"] > 0  # climo gives some signal
+        assert result["yes_probability"] < 0.05
+        assert "Climatology-only" in result["reasoning"]
+
+    @pytest.mark.asyncio
+    async def test_no_climo_no_forecast_returns_uncertain(self):
+        market = _make_market(threshold=85.0, days_to_close=2)
+        research = {"collected_data": {"is_day_of_event": False}}
+        estimator = ClimateEstimator(climatology=_NoneClimo())
+        result = await estimator.estimate(market, research)
+
+        assert result["confidence"] == 0.0

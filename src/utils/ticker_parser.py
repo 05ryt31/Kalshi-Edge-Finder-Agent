@@ -214,33 +214,36 @@ _WFO_MAP: dict[str, str] = {
     "SFO": "mtr",
 }
 
-# CLI station names used in NWS daily climate reports
+# CLI station identifiers used by IEM's cli.py JSON endpoint.
+# IEM requires a 4-character ICAO-style code; CLI* product names are not
+# accepted. Use the same ICAO code as the ASOS station for daily climate
+# report retrieval.
 _CLI_STATION_MAP: dict[str, str] = {
-    "NY": "CLINYC",
-    "NYC": "CLINYC",
-    "LAX": "CLILAX",
-    "LA": "CLILAX",
-    "CHI": "CLIORD",
-    "AUS": "CLIAUS",
-    "IAH": "CLIIAH",
-    "HOU": "CLIIAH",
-    "MIA": "CLIMIA",
-    "PHX": "CLIPHX",
-    "DEN": "CLIDEN",
-    "SEA": "CLISEA",
-    "ATL": "CLIATL",
-    "BOS": "CLIBOS",
-    "DFW": "CLIDFW",
-    "DAL": "CLIDFW",
-    "PHL": "CLIPHL",
-    "DCA": "CLIDCA",
-    "DC": "CLIDCA",
-    "MSP": "CLIMSP",
-    "DTW": "CLIDTW",
-    "SAN": "CLISAN",
-    "SAT": "CLISAT",
-    "SF": "CLISFO",
-    "SFO": "CLISFO",
+    "NY": "KNYC",
+    "NYC": "KNYC",
+    "LAX": "KLAX",
+    "LA": "KLAX",
+    "CHI": "KORD",
+    "AUS": "KAUS",
+    "IAH": "KIAH",
+    "HOU": "KIAH",
+    "MIA": "KMIA",
+    "PHX": "KPHX",
+    "DEN": "KDEN",
+    "SEA": "KSEA",
+    "ATL": "KATL",
+    "BOS": "KBOS",
+    "DFW": "KDFW",
+    "DAL": "KDFW",
+    "PHL": "KPHL",
+    "DCA": "KDCA",
+    "DC": "KDCA",
+    "MSP": "KMSP",
+    "DTW": "KDTW",
+    "SAN": "KSAN",
+    "SAT": "KSAT",
+    "SF": "KSFO",
+    "SFO": "KSFO",
 }
 
 
