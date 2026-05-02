@@ -292,3 +292,71 @@ class TestRouterIntegration:
         result = await estimator.estimate(market, research)
         assert result["yes_probability"] >= 0.95
         assert "exceeds threshold" in result["reasoning"]
+
+    @pytest.mark.asyncio
+    async def test_climate_category_without_info_does_not_call_llm(self):
+        """Regression: a market with category='climate' but climate_info=None
+        (e.g. ticker parser couldn't extract threshold) must not fall through
+        to the LLM. ClimateEstimator should return uncertain instead."""
+        from src.services.estimator import ProbabilityEstimator
+
+        class ExplodingLLM:
+            async def estimate_probability(self, *args, **kwargs):
+                raise RuntimeError("LLM should not be called for climate category")
+
+        estimator = ProbabilityEstimator(llm_client=ExplodingLLM())  # type: ignore[arg-type]
+        now = datetime.now(timezone.utc)
+        market = Market(
+            ticker="KXWEATHERWEIRD-26MAY01",
+            event_ticker="EVT",
+            title="Some unparseable climate market",
+            category="climate",
+            status="open",
+            yes_ask=50,
+            no_ask=50,
+            yes_bid=49,
+            no_bid=49,
+            last_price=50,
+            volume=100,
+            volume_24h=50,
+            close_time=now + timedelta(hours=24),
+            expiration_time=now + timedelta(hours=25),
+            climate_info=None,
+            ticker_date=None,
+        )
+        result = await estimator.estimate(market, {"collected_data": {}})
+        assert result["confidence"] == 0.0
+        assert result["yes_probability"] == 0.5
+        assert "no_climate_info" in result["reasoning"]
+
+
+class TestBracketSemantics:
+    """Phase 2a only supports above_equal bracket. Between/under should
+    return uncertain so DecisionEngine declines to bet."""
+
+    def setup_method(self):
+        self.estimator = ClimateEstimator()
+
+    def test_between_bracket_returns_uncertain(self):
+        market = _make_market(threshold=75.0, bracket_type="between")
+        research = {
+            "collected_data": {
+                "running_daily_high_f": 80.0,
+                "is_day_of_event": True,
+            }
+        }
+        result = self.estimator.estimate(market, research)
+        assert result["confidence"] == 0.0
+        assert "unsupported_bracket" in result["reasoning"]
+
+    def test_under_bracket_returns_uncertain(self):
+        market = _make_market(threshold=75.0, bracket_type="under")
+        research = {
+            "collected_data": {
+                "running_daily_high_f": 60.0,
+                "is_day_of_event": True,
+            }
+        }
+        result = self.estimator.estimate(market, research)
+        assert result["confidence"] == 0.0
+        assert "unsupported_bracket" in result["reasoning"]

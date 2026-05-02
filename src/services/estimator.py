@@ -28,7 +28,11 @@ class ProbabilityEstimator:
     ) -> dict:
         logger.info("estimating_probability", ticker=market.ticker, category=market.category)
 
-        if market.climate_info is not None:
+        # Route by category, not by climate_info presence: a market labeled
+        # 'climate' but missing parsed climate_info should return uncertain
+        # via ClimateEstimator (which short-circuits to confidence=0), not
+        # silently fall through to the LLM and require an API key.
+        if market.category == "climate":
             result = self.climate.estimate(market, research_data)
             logger.info(
                 "climate_estimate",

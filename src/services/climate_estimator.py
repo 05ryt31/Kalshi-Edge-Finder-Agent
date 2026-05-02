@@ -37,10 +37,6 @@ FORECAST_SIGMA_BY_LEAD_HOURS: list[tuple[float, float]] = [
 ]
 DEFAULT_FAR_SIGMA = 4.5  # > 2 days out
 
-# Snow / rain are noisier — multiply temp sigma by this factor when applied
-# to precip-style markets. Conservative until 2b empirical data lands.
-PRECIP_SIGMA_INCHES_DEFAULT = 0.4
-
 
 def _sigma_for_lead(hours_to_event: float) -> float:
     for boundary, sigma in FORECAST_SIGMA_BY_LEAD_HOURS:
@@ -65,13 +61,6 @@ def _prob_observable_at_least(
         return 1.0 if forecast_value >= threshold else 0.0
     z = (threshold - forecast_value) / sigma
     return 1.0 - _norm_cdf(z)
-
-
-def _prob_observable_at_most(
-    forecast_value: float, threshold: float, sigma: float
-) -> float:
-    """P(X <= threshold) for X ~ Normal(forecast_value, sigma)."""
-    return 1.0 - _prob_observable_at_least(forecast_value, threshold, sigma)
 
 
 def _clip_prob(p: float) -> float:
@@ -100,6 +89,12 @@ class ClimateEstimator:
         info = market.climate_info
         if info is None:
             return self._uncertain("no_climate_info")
+
+        # Phase 2a only handles 'above_equal' bracket semantics
+        # (resolves YES iff observed >= threshold). Between/under brackets
+        # need different logic and are deferred to a follow-up.
+        if info.bracket_type != "above_equal":
+            return self._uncertain(f"unsupported_bracket:{info.bracket_type}")
 
         collected = research_data.get("collected_data", {})
 
