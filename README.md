@@ -23,13 +23,10 @@ cp .env.example .env
 |-----|----------|--------|---------|
 | `KALSHI_API_KEY` | Yes | [Kalshi](https://kalshi.com/sign-up) | Market data |
 | `KALSHI_PRIVATE_KEY` | Yes | Kalshi API settings | RSA-PSS signing |
-| `ANTHROPIC_API_KEY` | Yes | [Anthropic](https://console.anthropic.com/) | LLM probability estimation |
-| `OPENWEATHER_API_KEY` | Yes | [OpenWeatherMap](https://openweathermap.org/api) | Climate market research |
-| `FRED_API_KEY` | Yes | [FRED](https://fred.stlouisfed.org/docs/api/api_key.html) | Economics market research |
-| `ODDS_API_KEY` | Optional | [The Odds API](https://the-odds-api.com/) | Sports odds/scores |
-| `TAVILY_API_KEY` | Optional | [Tavily](https://tavily.com/) | Web search for sports context |
+| `ANTHROPIC_API_KEY` | Optional | [Anthropic](https://console.anthropic.com/) | LLM fallback for non-climate (climate uses physics estimator, no LLM) |
+| `OPENWEATHER_API_KEY` | Yes | [OpenWeatherMap](https://openweathermap.org/api) | Forecast data for future-event climate markets |
 
-Sports research uses both The Odds API (structured odds data) and Tavily (web search context). If either key is missing, that data source is skipped gracefully.
+Climate-focus mode (default): research is performed exclusively via NWS ASOS / CLI (free, no key required) and OpenWeatherMap forecasts. Sports/economics/web-search research has been removed. The LLM is only invoked for non-climate categories, which are filtered out by default.
 
 ## Running a Scan
 

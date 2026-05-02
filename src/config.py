@@ -20,15 +20,11 @@ class Settings(BaseSettings):
     LLM_MODEL: str = ""
 
     OPENWEATHER_API_KEY: str = ""
-    FRED_API_KEY: str = ""
-    ODDS_API_KEY: str = ""
-    TAVILY_API_KEY: str = ""
 
-    EDGE_THRESHOLD: float = 0.20
-    MIN_MULTIPLIER: float = 2.0
+    MIN_MULTIPLIER: float = 1.5
     MAX_DAYS_TO_CLOSE: int = 7
     MIN_VOLUME: int = 100
-    MAX_BET_AMOUNT: float = 100.0
+    MAX_BET_AMOUNT: float = 50.0
     SCAN_INTERVAL_HOURS: int = 1
     AUTO_EXECUTE_STRENGTH: Literal["strong", "medium", "weak"] = "strong"
 
