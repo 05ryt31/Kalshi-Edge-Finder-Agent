@@ -106,6 +106,9 @@ class ClimatologyService:
     async def recompute_for_station(self, station: str) -> int:
         """Recompute climatology_stats for a single station, all market types.
 
+        Builds all rows in memory and issues a single bulk upsert per
+        market type (~365 rows each), keeping bootstrap fast.
+
         Returns the number of (calendar_day, market_type) cells written.
         """
         observations = await self._load_observations(station)
@@ -115,6 +118,7 @@ class ClimatologyService:
         cells_written = 0
         for market_type, field in self.MARKET_TYPE_TO_FIELD.items():
             samples_by_day = self._bucket_by_day_with_window(observations, field)
+            rows: list[dict] = []
             for (month, day), samples in samples_by_day.items():
                 if len(samples) < MIN_OBS_FOR_STAT:
                     continue
@@ -126,16 +130,20 @@ class ClimatologyService:
                     else SIGMA_FLOOR_PRECIP_IN
                 )
                 std = max(std, floor)
-                await self._upsert_stat(
-                    station=station,
-                    month=month,
-                    day=day,
-                    market_type=market_type,
-                    n_obs=len(samples),
-                    mean=mean,
-                    std=std,
+                rows.append(
+                    {
+                        "station": station,
+                        "month": month,
+                        "day": day,
+                        "market_type": market_type,
+                        "n_obs": len(samples),
+                        "mean": mean,
+                        "std": std,
+                    }
                 )
-                cells_written += 1
+            if rows:
+                await self._bulk_upsert_stats(rows)
+                cells_written += len(rows)
 
         return cells_written
 
@@ -212,6 +220,20 @@ class ClimatologyService:
                     windowed[(month, day)] = bucket
         return windowed
 
+    async def _bulk_upsert_stats(self, rows: list[dict]) -> None:
+        if not rows:
+            return
+        stmt = sqlite_insert(ClimatologyStat).values(rows)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=["station", "month", "day", "market_type"],
+            set_={
+                "n_obs": stmt.excluded.n_obs,
+                "mean": stmt.excluded.mean,
+                "std": stmt.excluded.std,
+            },
+        )
+        await self.session.execute(stmt)
+
     async def _upsert_stat(
         self,
         *,
@@ -223,21 +245,18 @@ class ClimatologyService:
         mean: float,
         std: float,
     ) -> None:
-        stmt = sqlite_insert(ClimatologyStat).values(
-            station=station,
-            month=month,
-            day=day,
-            market_type=market_type,
-            n_obs=n_obs,
-            mean=mean,
-            std=std,
+        # Retained for direct single-row upserts (e.g. tests). Production
+        # path uses _bulk_upsert_stats for performance.
+        await self._bulk_upsert_stats(
+            [
+                {
+                    "station": station,
+                    "month": month,
+                    "day": day,
+                    "market_type": market_type,
+                    "n_obs": n_obs,
+                    "mean": mean,
+                    "std": std,
+                }
+            ]
         )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["station", "month", "day", "market_type"],
-            set_={
-                "n_obs": stmt.excluded.n_obs,
-                "mean": stmt.excluded.mean,
-                "std": stmt.excluded.std,
-            },
-        )
-        await self.session.execute(stmt)

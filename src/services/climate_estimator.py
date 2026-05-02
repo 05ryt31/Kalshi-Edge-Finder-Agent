@@ -21,6 +21,7 @@ from math import erf, sqrt
 from typing import Any, Protocol
 
 from src.schemas.market import Market
+from src.services.climatology import ClimatologyValue
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -40,15 +41,17 @@ DEFAULT_FAR_SIGMA = 4.5  # > 2 days out
 
 
 class ClimatologyProvider(Protocol):
-    """Sync-friendly view of ClimatologyService used by the estimator.
+    """Read-only view of ClimatologyService used by the estimator.
 
-    Returns (mean, std) for the (station, calendar_day, market_type) cell,
-    or None if no climatology is available.
+    All methods are async since the underlying implementation hits the DB.
+    Returns ClimatologyValue (mean/std/n_obs) for the
+    (station, calendar_day, market_type) cell, or None if no climatology
+    is available for that cell.
     """
 
     async def get(
         self, station: str, target_date: date_t, market_type: str
-    ) -> Any | None: ...
+    ) -> ClimatologyValue | None: ...
 
 
 def _sigma_for_lead(hours_to_event: float) -> float:
@@ -158,7 +161,7 @@ class ClimateEstimator:
 
     async def _lookup_climatology(
         self, market: Market, market_type: str
-    ) -> Any | None:
+    ) -> ClimatologyValue | None:
         if self.climatology is None:
             return None
         info = market.climate_info
@@ -226,7 +229,7 @@ class ClimateEstimator:
     # ------------------------------------------------------------------
 
     def _estimate_high_temp(
-        self, market: Market, collected: dict, climo: Any
+        self, market: Market, collected: dict, climo: ClimatologyValue | None
     ) -> dict:
         info = market.climate_info
         threshold = info.threshold
@@ -301,8 +304,8 @@ class ClimateEstimator:
                 yes=yes,
                 confidence=0.45,
                 reasoning=(
-                    f"Climatology-only: 30y mean high {climo.mean:.1f}F, "
-                    f"std {climo.std:.2f}F, threshold {threshold}F."
+                    f"Climatology-only: historical mean high {climo.mean:.1f}F, "
+                    f"std {climo.std:.2f}F (n={climo.n_obs}), threshold {threshold}F."
                 ),
             )
 
@@ -313,7 +316,7 @@ class ClimateEstimator:
     # ------------------------------------------------------------------
 
     def _estimate_low_temp(
-        self, market: Market, collected: dict, climo: Any
+        self, market: Market, collected: dict, climo: ClimatologyValue | None
     ) -> dict:
         info = market.climate_info
         threshold = info.threshold
@@ -380,8 +383,8 @@ class ClimateEstimator:
                 yes=yes,
                 confidence=0.45,
                 reasoning=(
-                    f"Climatology-only: 30y mean low {climo.mean:.1f}F, "
-                    f"std {climo.std:.2f}F, threshold {threshold}F."
+                    f"Climatology-only: historical mean low {climo.mean:.1f}F, "
+                    f"std {climo.std:.2f}F (n={climo.n_obs}), threshold {threshold}F."
                 ),
             )
 
@@ -392,7 +395,7 @@ class ClimateEstimator:
     # ------------------------------------------------------------------
 
     def _estimate_precip(
-        self, market: Market, collected: dict, climo: Any
+        self, market: Market, collected: dict, climo: ClimatologyValue | None
     ) -> dict:
         info = market.climate_info
         threshold = info.threshold

@@ -15,7 +15,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 
 from src.clients.nws import NWSClient
 from src.db.session import async_session_factory, create_tables
@@ -46,10 +46,12 @@ async def bootstrap_one(
     years: int,
 ) -> BootstrapResult:
     today = date.today()
-    # Use complete calendar years to avoid partial-year warm-month bias.
+    # Use complete calendar years only — including a partial current year
+    # would over-weight whichever season has elapsed (e.g. a January run
+    # would skew climatology cool). Range is [today.year - years, last
+    # year], inclusive on both ends.
     start = date(today.year - years, 1, 1)
-    # Cap end at yesterday to ensure data is settled.
-    end = today - timedelta(days=1)
+    end = date(today.year - 1, 12, 31)
 
     summaries = await nws.get_daily_summaries(station, start, end)
     if not summaries:

@@ -260,6 +260,9 @@ class NWSClient:
                     snow_in=_parse_float(row.get("snow_in", "")),
                 )
             )
+        # Sort by obs_date so callers can rely on chronological ordering
+        # (IEM normally returns data in order, but don't depend on it).
+        rows.sort(key=lambda r: r.obs_date)
         return rows
 
     @staticmethod

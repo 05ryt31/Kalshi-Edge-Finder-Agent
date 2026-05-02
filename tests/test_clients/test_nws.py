@@ -156,6 +156,24 @@ class TestDailySummaries:
         assert rows[1].precip_in is None  # 'M'
         assert rows[1].snow_in is None  # 'T'
 
+    def test_parse_daily_csv_sorts_by_date(self):
+        # Server returned rows out of order; parser must sort chronologically.
+        csv_text = (
+            "station,day,max_temp_f,min_temp_f,max_dewpoint_f,min_dewpoint_f,"
+            "precip_in,avg_wind_speed_kts,avg_wind_drct,min_rh,avg_rh,max_rh,"
+            "snow_in,snowd_in,min_feel,avg_feel,max_feel,max_wind_speed_kts,"
+            "max_wind_gust_kts,srad_mj,climo_high_f,climo_low_f,climo_precip_in\n"
+            "NYC,2024-07-03,83.0,69.0,,,0.0,,,,,,0.0,,,,,,,,,,\n"
+            "NYC,2024-07-01,81.0,64.0,,,0.03,,,,,,0.0,,,,,,,,,,\n"
+            "NYC,2024-07-02,86.0,66.0,,,0.0,,,,,,0.0,,,,,,,,,,\n"
+        )
+        rows = NWSClient._parse_daily_csv(csv_text, "KNYC")
+        assert [r.obs_date for r in rows] == [
+            date(2024, 7, 1),
+            date(2024, 7, 2),
+            date(2024, 7, 3),
+        ]
+
     @pytest.mark.asyncio
     async def test_unknown_station_returns_empty(self):
         client = NWSClient()
